@@ -18,7 +18,7 @@ import os
 
 from google.adk.agents import Agent
 
-from tools.csv_loader import get_schema
+from agents.qa_agent.agent import describe_uploaded_files, get_topic_file
 from tools.plot_generator import (
     make_gg_diagram,
     make_multi_lap_overlay,
@@ -29,30 +29,6 @@ from tools.query_engine import (
     get_column_stats,
     get_zone_time_windows,
 )
-
-
-# ---------------------------------------------------------------------------
-# Discovery tools
-# ---------------------------------------------------------------------------
-
-def describe_uploaded_files(file_paths: list[str]) -> dict:
-    """
-    Discover what topics and columns are available in the uploaded session files.
-
-    Call this when unsure which file contains the columns needed for the plot.
-
-    Args:
-        file_paths: List of all file paths available for this session.
-
-    Returns:
-        Dict with session IDs as keys, each containing topics, columns,
-        time_range, row_counts, and duration_seconds.
-    """
-    schema = get_schema(file_paths)
-    for info in schema.values():
-        t_start, t_end = info["time_range"]
-        info["duration_seconds"] = round(t_end - t_start, 3)
-    return schema
 
 
 def resolve_lap_window(lap_boundaries: list[dict], lap_number: int) -> dict:
@@ -256,7 +232,7 @@ def plot_gg_diagram(
 
 root_agent = Agent(
     name="plot_agent",
-    model=os.getenv("VERTEX_AI_MODEL", "gemini-1.5-pro"),
+    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.0-flash-lite-001"),
     description=(
         "Generates Plotly visualisations for any race telemetry plot request. "
         "Handles time series, track maps, GG diagrams, lap comparisons, "
@@ -271,9 +247,12 @@ that help engineers and drivers understand telemetry data.
 1. **Understand what to visualise.**
    Identify: which signals, over what time range, grouped/coloured by what.
 
-2. **Discover files if needed.**
-   Call describe_uploaded_files if unsure which file contains the needed columns.
-   It returns all column names grouped by topic.
+2. **Get the file path for the needed topic.**
+   Your context includes "Available topics and columns". Find which topic has the
+   column you need, then call get_topic_file(topic_name) to download it and get
+   its local path. Pass that path to the plot tool.
+   Call describe_uploaded_files (with the stat file path) only if you need to
+   explore columns in more detail.
 
 3. **Resolve scope.**
    - Lap-scoped request → call resolve_lap_window first to get t_start/t_end.
@@ -320,6 +299,7 @@ that help engineers and drivers understand telemetry data.
 }
 """,
     tools=[
+        get_topic_file,
         describe_uploaded_files,
         resolve_lap_window,
         get_zone_windows_for_plot,

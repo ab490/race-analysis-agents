@@ -59,11 +59,8 @@ def save_session(
     bucket = _bucket()
     prefix = f"sessions/{session_id}/processed"
 
-    buf = io.BytesIO()
-    df.to_parquet(buf, index=False)
-    buf.seek(0)
-    bucket.blob(f"{prefix}/aligned.parquet").upload_from_file(
-        buf, content_type="application/octet-stream"
+    bucket.blob(f"{prefix}/aligned.csv").upload_from_string(
+        df.to_csv(index=False), content_type="text/csv"
     )
 
     bucket.blob(f"{prefix}/laps.json").upload_from_string(
@@ -75,9 +72,38 @@ def save_session(
     )
 
 
+def load_session_meta(session_id: str) -> tuple[list[dict], dict]:
+    """
+    Load lap boundaries and schema for a session without downloading the parquet.
+
+    Use this at query time — the aligned parquet is not needed for agent queries.
+
+    Args:
+        session_id: Unique session identifier.
+
+    Returns:
+        Tuple of (lap_boundaries, schema).
+
+    Raises:
+        FileNotFoundError: If the session does not exist in GCS.
+    """
+    bucket = _bucket()
+    prefix = f"sessions/{session_id}/processed"
+
+    if not bucket.blob(f"{prefix}/aligned.csv").exists():
+        raise FileNotFoundError(f"Session '{session_id}' not found in GCS.")
+
+    lap_boundaries = json.loads(bucket.blob(f"{prefix}/laps.json").download_as_text())
+    schema = json.loads(bucket.blob(f"{prefix}/schema.json").download_as_text())
+
+    return lap_boundaries, schema
+
+
 def load_session(session_id: str) -> tuple[pd.DataFrame, list[dict], dict]:
     """
-    Load a processed session from GCS.
+    Load a processed session from GCS including the full aligned DataFrame.
+
+    Prefer load_session_meta when only lap boundaries and schema are needed.
 
     Args:
         session_id: Unique session identifier.
@@ -91,11 +117,11 @@ def load_session(session_id: str) -> tuple[pd.DataFrame, list[dict], dict]:
     bucket = _bucket()
     prefix = f"sessions/{session_id}/processed"
 
-    blob = bucket.blob(f"{prefix}/aligned.parquet")
+    blob = bucket.blob(f"{prefix}/aligned.csv")
     if not blob.exists():
         raise FileNotFoundError(f"Session '{session_id}' not found in GCS.")
 
-    df = pd.read_parquet(io.BytesIO(blob.download_as_bytes()))
+    df = pd.read_csv(io.StringIO(blob.download_as_text()))
     lap_boundaries = json.loads(bucket.blob(f"{prefix}/laps.json").download_as_text())
     schema = json.loads(bucket.blob(f"{prefix}/schema.json").download_as_text())
 
@@ -104,16 +130,17 @@ def load_session(session_id: str) -> tuple[pd.DataFrame, list[dict], dict]:
 
 def session_exists(session_id: str) -> bool:
     """Check if a session has already been processed and stored in GCS."""
-    return _bucket().blob(f"sessions/{session_id}/processed/aligned.parquet").exists()
+    return _bucket().blob(f"sessions/{session_id}/processed/aligned.csv").exists()
 
 
 def list_sessions() -> list[str]:
-    """List all session IDs stored in GCS."""
+    """List all fully processed session IDs stored in GCS."""
     bucket = _bucket()
     session_ids = set()
     for blob in bucket.list_blobs(prefix="sessions/"):
         parts = blob.name.split("/")
-        if len(parts) >= 2:
+        # Only include sessions that have a completed aligned.parquet
+        if len(parts) >= 4 and parts[2] == "processed" and parts[3] == "aligned.csv":
             session_ids.add(parts[1])
     return sorted(session_ids)
 
@@ -139,20 +166,18 @@ def save_raw_file(session_id: str, filename: str, file_bytes: bytes) -> None:
     )
 
 
-def download_raw_file(session_id: str, topic: str) -> str:
+def download_raw_file(session_id: str, topic: str, target_dir: str | None = None) -> str:
     """
-    Download a raw topic CSV from GCS to a local temp file and return its path.
-
-    Agents call this to get a local file path they can pass to query_engine
-    functions. The caller is responsible for deleting the temp file when done,
-    or using it inside a context manager.
+    Download a raw topic CSV from GCS to a local file and return its path.
 
     Args:
-        session_id: Session identifier.
-        topic:      Topic name (e.g. 'wheel_speed', 'ControlStatus', '_stat').
+        session_id:  Session identifier.
+        topic:       Topic name (e.g. 'wheel_speed', 'ControlStatus', '_stat').
+        target_dir:  If given, write the file into this directory instead of a
+                     system temp file. The caller owns the directory and its cleanup.
 
     Returns:
-        Absolute path to the downloaded local temp file.
+        Absolute path to the downloaded local file.
 
     Raises:
         FileNotFoundError: If no raw file for this topic exists in GCS.
@@ -160,11 +185,6 @@ def download_raw_file(session_id: str, topic: str) -> str:
     bucket = _bucket()
     prefix = f"sessions/{session_id}/raw/"
 
-    # Find the blob whose filename contains the topic name.
-    # For rosbag2 topics (e.g. 'ControlStatus') the stem ends with '_ControlStatus'.
-    # For the stat topic ('_stat') the stem ends with '_stat' (single underscore),
-    # so we match stem.endswith(topic) rather than stem.endswith(f"_{topic}") to
-    # avoid incorrectly requiring a double underscore ('__stat').
     matching = [
         blob for blob in bucket.list_blobs(prefix=prefix)
         if Path(blob.name).stem.lower().endswith(topic.lower()) or Path(blob.name).stem.lower() == topic.lower()
@@ -177,15 +197,17 @@ def download_raw_file(session_id: str, topic: str) -> str:
 
     blob = matching[0]
     filename = Path(blob.name).name
+    data = blob.download_as_bytes()
 
-    # Write to a named temp file (not auto-deleted so caller can pass path around)
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=f"_{filename}", delete=False, mode="wb"
-    )
-    tmp.write(blob.download_as_bytes())
+    if target_dir:
+        dest = Path(target_dir) / filename
+        dest.write_bytes(data)
+        return str(dest)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=f"_{filename}", delete=False, mode="wb")
+    tmp.write(data)
     tmp.flush()
     tmp.close()
-
     return tmp.name
 
 

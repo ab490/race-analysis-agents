@@ -12,8 +12,6 @@ manageable. Time axis is normalised to seconds-from-start-of-window.
 
 from pathlib import Path
 
-import numpy as np
-
 from tools.csv_loader import _load_raw
 
 

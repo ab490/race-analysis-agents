@@ -1,3 +1,4 @@
+import Markdown from 'react-markdown'
 import PlotSection from './PlotSection'
 
 export default function ReportView({ report }) {
@@ -11,9 +12,9 @@ export default function ReportView({ report }) {
       {(report.sections || []).map((section, i) => {
         if (section.type === 'text') {
           return (
-            <p key={i} className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
-              {section.content}
-            </p>
+            <div key={i} className="text-slate-300 text-sm leading-relaxed prose prose-invert prose-sm max-w-none">
+              <Markdown>{section.content}</Markdown>
+            </div>
           )
         }
         if (section.type === 'plot') {

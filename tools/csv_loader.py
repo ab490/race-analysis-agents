@@ -146,16 +146,21 @@ def _align_session(topic_dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
             columns={c: f"{c}__{topic}" for c in df.columns if c != "t"}
         )
 
-        # Trim to overlapping time window
-        t_start = max(master["t"].iloc[0], other["t"].iloc[0])
-        t_end = min(master["t"].iloc[-1], other["t"].iloc[-1])
+        # Check for time overlap with master — skip topics with no overlap at all.
+        # Only trim 'other' to the master window; master is never shrunk so that
+        # aligning successive topics doesn't progressively shorten the timeline.
+        master_start = float(master["t"].iloc[0])
+        master_end = float(master["t"].iloc[-1])
+        other_start = float(other["t"].iloc[0])
+        other_end = float(other["t"].iloc[-1])
 
-        if t_start >= t_end:
+        if other_start > master_end or other_end < master_start:
             # No overlap — skip this topic
             continue
 
-        master = master[(master["t"] >= t_start) & (master["t"] <= t_end)].reset_index(drop=True)
-        other = other[(other["t"] >= t_start) & (other["t"] <= t_end)].reset_index(drop=True)
+        other = other[
+            (other["t"] >= master_start) & (other["t"] <= master_end)
+        ].reset_index(drop=True)
 
         master = pd.merge_asof(
             master,
@@ -276,6 +281,10 @@ def get_schema(file_paths: list[str]) -> dict[str, dict]:
         result[session_id] = {
             "topics": sorted(topics.keys()),
             "columns": all_cols,
+            "columns_by_topic": {
+                topic: [c for c in df.columns if c != "t"]
+                for topic, df in topics.items()
+            },
             "time_range": [t_min, t_max],
             "row_counts": row_counts,
         }

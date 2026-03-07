@@ -1,6 +1,5 @@
 """Tests for tools/csv_loader.py against real sample data in data/."""
 
-import glob
 from pathlib import Path
 
 import pytest
@@ -63,20 +62,32 @@ def test_parse_filename_invalid():
 def test_get_schema_returns_session():
     # Use a small subset to keep test fast
     subset = [str(p) for p in ALL_CSVS[:5]]
+    # Derive expected topic count: non-stat files become named topics,
+    # stat file (if any) becomes the '_stat' topic.
+    stat_count = sum(1 for p in subset if p.lower().endswith("_stat.csv"))
+    non_stat_count = len(subset) - stat_count
+    expected_topics = non_stat_count + (1 if stat_count > 0 else 0)
+
     schema = get_schema(subset)
     assert SESSION_ID in schema
     s = schema[SESSION_ID]
-    assert len(s["topics"]) == 5
+    assert len(s["topics"]) == expected_topics
     assert s["time_range"][0] < s["time_range"][1]
     assert all(count > 0 for count in s["row_counts"].values())
 
 
 def test_get_schema_all_files():
+    stat_count = sum(1 for p in ALL_CSVS if p.name.lower().endswith("_stat.csv"))
+    non_stat_count = len(ALL_CSVS) - stat_count
+    expected_topics = non_stat_count + (1 if stat_count > 0 else 0)
+
     schema = get_schema([str(p) for p in ALL_CSVS])
     assert SESSION_ID in schema
     s = schema[SESSION_ID]
-    assert len(s["topics"]) == len(ALL_CSVS)
+    assert len(s["topics"]) == expected_topics
     assert len(s["columns"]) > 0
+    assert "columns_by_topic" in s
+    assert all(isinstance(v, list) for v in s["columns_by_topic"].values())
 
 
 # ---------------------------------------------------------------------------

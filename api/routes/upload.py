@@ -20,9 +20,10 @@ import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from scipy.spatial import KDTree
 
-from tools.csv_loader import get_schema
+from tools.csv_loader import _load_raw, _parse_filename, get_schema
 from tools.csv_loader import load_session as csv_load_session
 from tools.gcs_store import (
+    list_sessions,
     list_tracks,
     load_track_kml,
     load_track_segments,
@@ -123,6 +124,7 @@ def _assign_zones(stat_df: pd.DataFrame, centerline_df: pd.DataFrame, segments_d
 async def upload_session(
     files: list[UploadFile] = File(...),
     track_id: str = Form(...),
+    force: bool = Form(default=False),
 ):
     """
     Upload rosbag2 topic CSVs + one *_stat.csv for a session.
@@ -133,6 +135,7 @@ async def upload_session(
     Args:
         files:    List of CSV files (rosbag2 topics + one *_stat.csv).
         track_id: Track identifier matching a previously uploaded track in GCS.
+        force:    If true, re-process even if the session already exists in GCS.
 
     Returns:
         session_id, lap count, topics uploaded, duration_seconds.
@@ -175,12 +178,11 @@ async def upload_session(
         if not rosbag_files:
             raise HTTPException(status_code=422, detail="No rosbag2 topic CSV files found.")
 
-        from tools.csv_loader import _parse_filename
         session_id = _parse_filename(Path(rosbag_files[0]).name)[0]
 
-        if session_exists(session_id):
+        if session_exists(session_id) and not force:
             return {
-                "message": "Session already processed.",
+                "message": "Session already processed. Pass force=true to re-process.",
                 "session_id": session_id,
                 "reprocessed": False,
             }
@@ -196,7 +198,6 @@ async def upload_session(
         start_finish  = _parse_start_finish(segments_df)
 
         # Load and process stat file
-        from tools.csv_loader import _load_raw
         stat_df = _load_raw(Path(stat_path))
         stat_df = process_stat_file(stat_df, start_finish)
         stat_df = _assign_zones(stat_df, centerline_df, segments_df)
@@ -290,5 +291,29 @@ async def upload_track(
 @router.get("/sessions")
 def get_sessions():
     """List all processed sessions available in GCS."""
-    from tools.gcs_store import list_sessions
     return {"sessions": list_sessions()}
+
+
+@router.get("/sessions/{session_id}")
+def get_session_info(session_id: str):
+    """
+    Get metadata for a specific session: lap boundaries and schema.
+
+    Args:
+        session_id: The session ID to look up.
+
+    Returns:
+        session_id, lap_boundaries (list of {lap, t_start, t_end}), schema.
+    """
+    from tools.gcs_store import load_session_meta
+    if not session_exists(session_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session '{session_id}' not found.",
+        )
+    lap_boundaries, schema = load_session_meta(session_id)
+    return {
+        "session_id": session_id,
+        "lap_boundaries": lap_boundaries,
+        "schema": schema,
+    }

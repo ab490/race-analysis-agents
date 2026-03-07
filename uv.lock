@@ -1940,7 +1940,9 @@ dependencies = [
     { name = "google-adk" },
     { name = "google-cloud-storage" },
     { name = "pandas" },
+    { name = "pyarrow" },
     { name = "python-dotenv" },
+    { name = "python-multipart" },
     { name = "scipy" },
     { name = "uvicorn" },
 ]
@@ -1958,7 +1960,9 @@ requires-dist = [
     { name = "google-adk", specifier = ">=1.26.0" },
     { name = "google-cloud-storage", specifier = ">=3.9.0" },
     { name = "pandas", specifier = ">=3.0.1" },
+    { name = "pyarrow", specifier = ">=18.0.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "scipy", specifier = ">=1.17.1" },
     { name = "uvicorn", specifier = ">=0.41.0" },
 ]

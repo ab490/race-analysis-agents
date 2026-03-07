@@ -1,12 +1,18 @@
-import { useState } from 'react'
-import { uploadSession, uploadTrack } from '../api'
+import { useEffect, useState } from 'react'
+import { getTracks, uploadSession, uploadTrack } from '../api'
 
 export default function UploadPage({ onSessionReady }) {
   const [mode, setMode] = useState('session') // 'session' | 'track'
+  const [availableTracks, setAvailableTracks] = useState([])
+
+  useEffect(() => {
+    getTracks().then(setAvailableTracks).catch(() => {})
+  }, [])
 
   // Session upload state
   const [trackId, setTrackId] = useState('')
   const [sessionFiles, setSessionFiles] = useState([])
+  const [forceReprocess, setForceReprocess] = useState(false)
   const [sessionStatus, setSessionStatus] = useState(null)
   const [sessionError, setSessionError] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(false)
@@ -25,7 +31,7 @@ export default function UploadPage({ onSessionReady }) {
     setSessionStatus(null)
     setSessionLoading(true)
     try {
-      const result = await uploadSession(trackId, sessionFiles)
+      const result = await uploadSession(trackId, sessionFiles, forceReprocess)
       setSessionStatus(result)
     } catch (err) {
       setSessionError(err.response?.data?.detail || err.message)
@@ -42,6 +48,7 @@ export default function UploadPage({ onSessionReady }) {
     try {
       const result = await uploadTrack(newTrackId, kmlFile, segmentsFile)
       setTrackStatus(result)
+      getTracks().then(setAvailableTracks).catch(() => {})
     } catch (err) {
       setTrackError(err.response?.data?.detail || err.message)
     } finally {
@@ -72,14 +79,28 @@ export default function UploadPage({ onSessionReady }) {
         <form onSubmit={handleSessionUpload} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1">
             <span className="text-sm text-slate-400">Track ID</span>
-            <input
-              type="text"
-              value={trackId}
-              onChange={(e) => setTrackId(e.target.value)}
-              placeholder="e.g. laguna_seca"
-              required
-              className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-            />
+            {availableTracks.length > 0 ? (
+              <select
+                value={trackId}
+                onChange={(e) => setTrackId(e.target.value)}
+                required
+                className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="">— select a track —</option>
+                {availableTracks.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={trackId}
+                onChange={(e) => setTrackId(e.target.value)}
+                placeholder="e.g. laguna_seca (upload a track first)"
+                required
+                className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              />
+            )}
           </label>
 
           <label className="flex flex-col gap-1">
@@ -95,6 +116,16 @@ export default function UploadPage({ onSessionReady }) {
             {sessionFiles.length > 0 && (
               <span className="text-xs text-slate-500">{sessionFiles.length} file(s) selected</span>
             )}
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={forceReprocess}
+              onChange={(e) => setForceReprocess(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-800"
+            />
+            Force re-process (overwrite existing session)
           </label>
 
           <button

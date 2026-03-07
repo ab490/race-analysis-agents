@@ -1,12 +1,35 @@
 # Race Analysis Agents
 
-A platform for autonomous race car telemetry analysis. Engineers and drivers upload CSV telemetry data exported from ROS2 rosbag2 recordings, and interact with AI agents that answer questions, find correlations, and generate Plotly charts — all in plain English.
+A platform for autonomous race car telemetry analysis. Engineers and drivers upload CSV telemetry data exported from ROS2 rosbag2 recordings, then interact with AI agents via a web UI or REST API — asking questions in plain English to get stats, event detection, lap time summaries, and Plotly charts.
+
+---
+
+## Quick Start
+
+```bash
+# Backend
+uv sync
+uv run uvicorn api.main:app --reload     # API at http://localhost:8000
+
+# Frontend (separate terminal)
+cd frontend && npm install
+cd frontend && npm run dev               # UI at http://localhost:5173
+```
+
+Required environment variables (`.env` in project root):
+```
+GCP_PROJECT_ID=your-project
+GCP_REGION=us-central1
+VERTEX_AI_MODEL=gemini-2.0-flash-lite-001
+GCS_BUCKET_NAME=your-bucket
+API_KEY=                                 # optional — leave blank to disable auth
+```
 
 ---
 
 ## Upload Requirements
 
-Two types of uploads are required: **track setup files** (once per track) and **session files** (once per recording).
+Two uploads are required before querying: **track setup** (once per track) and **session files** (once per recording).
 
 ---
 
@@ -45,9 +68,9 @@ s3,36.583196,-121.757016
 ```
 
 **Rules:**
-- Must contain a `start_finish` row — the GPS coordinate of the start/finish line, used only for lap detection
+- Must contain a `start_finish` row — the GPS coordinate used only for lap detection
 - Remaining rows are segments listed in lap order (`s1`, `s2`, `s3`, ...)
-- Each segment starts at its own lat/lon and ends where the next segment begins; the last segment wraps back to `s1`
+- Each segment starts at its lat/lon and ends where the next begins; last wraps back to `s1`
 - Segment names become zone labels for queries (e.g. "max speed in s1", "brake pressure in s2")
 - Coordinates are decimal degrees (WGS84)
 
@@ -102,32 +125,39 @@ The ENU origin is the start/finish coordinate from `*_segments.csv`. Upload exac
 
 1. Stat file ENU coordinates converted to lat/lon using the S/F point as ECEF origin
 2. Cumulative distance computed along the GPS trace
-3. Laps detected automatically by counting S/F crossings (minimum lap distance enforced to avoid noise)
+3. Laps detected automatically by counting S/F crossings (min lap distance enforced to avoid noise)
 4. Each position row assigned to a named track segment via nearest-neighbour match against KML centerline
 5. All topic files time-aligned to the stat file (nearest-timestamp, no interpolation)
-6. Enriched stat file (with `lat`, `lon`, `zone`, `lap` columns) saved back to storage
+6. Enriched stat file (with `lat`, `lon`, `zone`, `lap` columns) saved back to GCS
 7. Processed session stored — no re-upload needed for future queries
 
 ---
 
 ## Querying a Session
 
-`POST /query/ask`
+Queries stream back results as Server-Sent Events:
+
+`POST /query/stream`
 
 ```json
-{
-  "session_id": "rosbag2_2025_07_02-10_33_18",
-  "message": "What was the max speed in sector 1 across all laps?"
-}
+{ "session_id": "rosbag2_2025_07_02-10_33_18", "message": "What was the max speed in sector 1?" }
 ```
 
-Returns a report dict:
+**Event stream format:**
+
+```
+data: {"type": "status", "text": "Computing statistics…"}
+data: {"type": "status", "text": "Generating time series chart…"}
+data: {"type": "done", "report": {"title": "...", "sections": [...]}}
+```
+
+The final `done` event contains a report dict:
 ```json
 {
-  "title": "...",
+  "title": "Max Speed — Sector 1",
   "sections": [
-    {"type": "text", "content": "..."},
-    {"type": "plot", "figure": {...}, "caption": "..."}
+    {"type": "text", "content": "Peak speed in s1 was **67.3 mph** (lap 2)."},
+    {"type": "plot", "figure": {...plotly dict...}, "caption": "Speed over time in s1"}
   ]
 }
 ```
@@ -142,34 +172,52 @@ Returns a report dict:
 - *"Show me a speed heatmap on the track map."*
 - *"Was there any MPC failure during the session?"*
 - *"Which lap had the highest peak lateral acceleration?"*
+- *"How did lap times change across the stint?"*
+- *"Were there any anomalies in lateral G-force?"*
 
 ---
 
-## Other API Endpoints
+## Authentication
+
+Set `API_KEY` in the environment to require authentication. When set, every request must include:
+
+```
+X-API-Key: <your key>
+```
+
+Leave `API_KEY` unset (or empty) to disable auth — useful for local development.
+
+The web UI has an API Key field in the top-right navbar that stores the key in `localStorage`.
+
+---
+
+## API Endpoints
 
 | Method | Path | Description |
 |---|---|---|
+| `POST` | `/upload/track` | Upload track KML + segments CSV |
+| `POST` | `/upload/session` | Upload session CSVs and trigger processing |
 | `GET` | `/upload/sessions` | List all processed session IDs |
+| `GET` | `/upload/sessions/{id}` | Get session metadata (lap boundaries, schema) |
+| `POST` | `/query/stream` | Stream a question as SSE |
 | `GET` | `/tracks/` | List all uploaded track IDs |
 | `GET` | `/tracks/{track_id}` | Get segment definitions for a track |
 | `GET` | `/health` | Health check |
 
 ---
 
-## Development Setup
+## Development
 
 ```bash
-uv sync                                  # install dependencies
-uv run uvicorn api.main:app --reload     # run API
+# Backend
+uv sync
+uv run uvicorn api.main:app --reload     # http://localhost:8000
 uv run pytest                            # run tests
 uv run ruff check .                      # lint
 uv run ruff format .                     # format
-```
 
-`.env` file:
-```
-GCP_PROJECT_ID=
-GCP_REGION=us-central1
-VERTEX_AI_MODEL=gemini-2.0-flash-lite-001
-GCS_BUCKET_NAME=
+# Frontend
+cd frontend && npm install
+cd frontend && npm run dev               # http://localhost:5173
+cd frontend && npm run build             # production build
 ```

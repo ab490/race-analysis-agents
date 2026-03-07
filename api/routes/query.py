@@ -1,23 +1,28 @@
 """
-Query route — receives user questions and routes them through the orchestrator.
+Query routes — natural language questions answered by the orchestrator agent.
 
-POST /query/ask
-  - Takes a user message + session_id
-  - Loads session data from GCS
-  - Passes to orchestrator agent
-  - Returns a report dict (title + text/plot sections)
+POST /query/stream
+  - Streaming: returns Server-Sent Events with status updates and the final report.
+    Events: {"type": "status", "text": "..."} | {"type": "done", "report": {...}} | {"type": "error", "text": "..."}
 """
 
+import ast
+import json
 import os
+import re
+import shutil
+import tempfile
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import BaseModel
 
 from agents.orchestrator.agent import root_agent
-from tools.gcs_store import download_raw_file, list_raw_files, load_session, session_exists
+from agents.qa_agent.agent import _session_ctx, _tempdir_ctx
+from tools.gcs_store import download_raw_file, load_session_meta, session_exists
 
 router = APIRouter()
 
@@ -27,17 +32,121 @@ class QueryRequest(BaseModel):
     message: str
 
 
-@router.post("/ask")
-async def ask(request: QueryRequest):
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _parse_report(text: str) -> dict:
+    """Parse agent output (JSON string, possibly wrapped in markdown fences) into a report dict."""
+    stripped = re.sub(r"^```[a-z]*\n?", "", text.strip(), flags=re.MULTILINE)
+    stripped = re.sub(r"\n?```$", "", stripped.strip(), flags=re.MULTILINE)
+    stripped = stripped.strip()
+
+    for candidate in (text.strip(), stripped):
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, dict):
+                return result
+        except Exception:
+            pass
+        try:
+            result = ast.literal_eval(candidate)
+            if isinstance(result, dict):
+                return result
+        except Exception:
+            pass
+
+    return {"title": "Response", "sections": [{"type": "text", "content": text}]}
+
+
+def _tool_label(tool_name: str) -> str:
+    """Return a human-readable status string for a tool call."""
+    labels = {
+        "transfer_to_agent": "Routing to analysis agent…",
+        "get_topic_file": "Downloading topic data…",
+        "describe_uploaded_files": "Discovering available data…",
+        "stats_for_column": "Computing statistics…",
+        "signal_over_time": "Reading time series…",
+        "events_above_threshold": "Detecting events…",
+        "correlate_signals": "Correlating signals…",
+        "stats_for_zone": "Analysing track zone…",
+        "list_zones": "Listing track zones…",
+        "resolve_lap_window": "Resolving lap window…",
+        "summarise_lap_times": "Summarising lap times…",
+        "stint_trend": "Computing stint trend…",
+        "sector_times": "Computing sector times…",
+        "detect_anomalies": "Detecting anomalies…",
+        "plot_time_series": "Generating time series chart…",
+        "plot_lap_overlay": "Generating lap overlay chart…",
+        "plot_track_map": "Generating track map…",
+        "plot_gg_diagram": "Generating GG diagram…",
+        "load_aligned_session": "Loading session data…",
+        "get_zone_windows_for_plot": "Getting zone windows…",
+        "get_stats_for_annotation": "Computing annotation stats…",
+        "plot_time_series_overlay": "Generating overlay chart…",
+    }
+    return labels.get(tool_name, f"Running {tool_name}…")
+
+
+async def _prepare_context(
+    session_id: str, message: str, temp_dir: str
+) -> tuple[str, str | None]:
     """
-    Send a natural language question about a session to the orchestrator agent.
+    Load session metadata, download only the stat file, and build the context
+    string passed to the orchestrator. Returns (context, stat_file_path).
+    Other topic files are downloaded on demand via get_topic_file().
+    """
+    lap_boundaries, schema = load_session_meta(session_id)
 
-    Args:
-        session_id: The session ID to query (must have been uploaded and processed).
-        message:    The user's question in plain English.
+    stat_file_path = None
+    try:
+        stat_file_path = download_raw_file(session_id, "_stat", target_dir=temp_dir)
+    except FileNotFoundError:
+        pass
 
-    Returns:
-        A report dict with title and sections (text and/or plot).
+    t_start, t_end = schema.get("time_range", [None, None])
+    duration = round(t_end - t_start, 1) if t_start and t_end else "unknown"
+    columns_by_topic = schema.get("columns_by_topic", {})
+
+    context = (
+        f"Session ID: {session_id}\n"
+        f"Stat file path (enriched — has lat, lon, zone, lap columns): {stat_file_path}\n"
+        f"Available topics and columns:\n{json.dumps(columns_by_topic, indent=2)}\n"
+        f"Lap boundaries: {lap_boundaries}\n"
+        f"Duration: {duration}s\n\n"
+        f"IMPORTANT: To get the file path for any topic other than the stat file, "
+        f"call get_topic_file(topic_name) — it downloads the file and returns its local path.\n"
+        f"Do NOT describe what you plan to do — immediately delegate to the appropriate "
+        f"sub-agent and return its answer.\n\n"
+        f"User question: {message}"
+    )
+    return context, stat_file_path
+
+
+def _make_runner() -> tuple[Runner, InMemorySessionService]:
+    session_service = InMemorySessionService()
+    runner = Runner(
+        agent=root_agent,
+        app_name="race-analysis",
+        session_service=session_service,
+    )
+    return runner, session_service
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@router.post("/stream")
+async def stream_ask(request: QueryRequest):
+    """
+    Streaming query — returns Server-Sent Events.
+
+    Event types:
+      {"type": "status", "text": "..."}   — tool call in progress
+      {"type": "done",   "report": {...}} — final report dict
+      {"type": "error",  "text": "..."}   — error occurred
     """
     if not session_exists(request.session_id):
         raise HTTPException(
@@ -45,98 +154,61 @@ async def ask(request: QueryRequest):
             detail=f"Session '{request.session_id}' not found. Upload it first via /upload/session.",
         )
 
-    _, lap_boundaries, schema = load_session(request.session_id)
+    async def event_generator():
+        temp_dir = tempfile.mkdtemp(prefix="race_query_")
+        context, _ = await _prepare_context(request.session_id, request.message, temp_dir)
 
-    # Download all raw topic files from GCS to local temp paths for agents to use
-    topics = list_raw_files(request.session_id)
-    file_paths = []
-    for topic in topics:
+        # Set per-request context so get_topic_file() knows which session/dir to use
+        token_session = _session_ctx.set(request.session_id)
+        token_tempdir = _tempdir_ctx.set(temp_dir)
+
+        runner, session_service = _make_runner()
+        adk_session = await session_service.create_session(app_name="race-analysis", user_id="user")
+
+        response_text = ""
+        fallback_text = ""  # last text seen from any agent/event
         try:
-            file_paths.append(download_raw_file(request.session_id, topic))
-        except FileNotFoundError:
-            pass  # topic listed but blob missing — skip
+            async for event in runner.run_async(
+                user_id="user",
+                session_id=adk_session.id,
+                new_message=types.Content(role="user", parts=[types.Part(text=context)]),
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        # Emit status for each tool call
+                        if hasattr(part, "function_call") and part.function_call:
+                            label = _tool_label(part.function_call.name)
+                            yield f"data: {json.dumps({'type': 'status', 'text': label})}\n\n"
 
-    t_start, t_end = schema.get("time_range", [None, None])
-    duration = round(t_end - t_start, 1) if t_start and t_end else "unknown"
+                        # Track all text as fallback (sub-agent responses may not be
+                        # marked is_final_response at the orchestrator runner level)
+                        if hasattr(part, "text") and part.text:
+                            fallback_text = part.text
 
-    # Build context message with session metadata and local file paths
-    context = (
-        f"Session ID: {request.session_id}\n"
-        f"File paths (local): {file_paths}\n"
-        f"Available topics: {schema.get('topics', [])}\n"
-        f"Lap boundaries: {lap_boundaries}\n"
-        f"Duration: {duration}s\n\n"
-        f"IMPORTANT: You have all the file paths above. Do NOT describe what you plan to do — "
-        f"immediately delegate to the appropriate sub-agent and return its answer.\n\n"
-        f"User question: {request.message}"
+                # Prefer the explicitly marked final response
+                if event.is_final_response() and event.content:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            response_text += part.text
+
+            # Fall back to the last text seen if the final response was empty
+            if not response_text.strip():
+                response_text = fallback_text
+
+            yield f"data: {json.dumps({'type': 'done', 'report': _parse_report(response_text)})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
+        finally:
+            _session_ctx.reset(token_session)
+            _tempdir_ctx.reset(token_tempdir)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
-
-    # Run the orchestrator agent
-    session_service = InMemorySessionService()
-    runner = Runner(
-        agent=root_agent,
-        app_name="race-analysis",
-        session_service=session_service,
-    )
-
-    adk_session = await session_service.create_session(
-        app_name="race-analysis",
-        user_id="user",
-    )
-
-    response_text = ""
-    try:
-        async for event in runner.run_async(
-            user_id="user",
-            session_id=adk_session.id,
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part(text=context)],
-            ),
-        ):
-            if event.is_final_response() and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        response_text += part.text
-    finally:
-        # Clean up temp files downloaded from GCS
-        import os as _os
-        for path in file_paths:
-            try:
-                _os.unlink(path)
-            except OSError:
-                pass
-
-    # The orchestrator returns a report dict as text — parse it.
-    # Try json.loads first, then ast.literal_eval, then strip markdown fences and retry.
-    import ast
-    import json
-    import re
-
-    def _parse_report(text: str) -> dict:
-        # Strip markdown code fences if present (```python ... ``` or ``` ... ```)
-        stripped = re.sub(r"^```[a-z]*\n?", "", text.strip(), flags=re.MULTILINE)
-        stripped = re.sub(r"\n?```$", "", stripped.strip(), flags=re.MULTILINE)
-        stripped = stripped.strip()
-
-        for candidate in (text.strip(), stripped):
-            try:
-                result = json.loads(candidate)
-                if isinstance(result, dict):
-                    return result
-            except Exception:
-                pass
-            try:
-                result = ast.literal_eval(candidate)
-                if isinstance(result, dict):
-                    return result
-            except Exception:
-                pass
-
-        # Fallback: wrap plain text
-        return {
-            "title": "Response",
-            "sections": [{"type": "text", "content": text}],
-        }
-
-    return _parse_report(response_text)
