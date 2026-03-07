@@ -57,17 +57,31 @@ def _parse_report(text: str) -> dict:
         try:
             result = json.loads(candidate)
             if isinstance(result, dict):
-                return result
+                return _fix_figures(result)
         except Exception:
             pass
         try:
             result = ast.literal_eval(candidate)
             if isinstance(result, dict):
-                return result
+                return _fix_figures(result)
         except Exception:
             pass
 
     return {"title": "Response", "sections": [{"type": "text", "content": text}]}
+
+
+def _fix_figures(report: dict) -> dict:
+    """If any plot section has a figure that's a JSON string, parse it into a dict."""
+    for section in report.get("sections", []):
+        if section.get("type") == "plot" and isinstance(section.get("figure"), str):
+            try:
+                section["figure"] = json.loads(section["figure"])
+            except Exception:
+                try:
+                    section["figure"] = ast.literal_eval(section["figure"])
+                except Exception:
+                    pass
+    return report
 
 
 def _tool_label(tool_name: str) -> str:
@@ -95,6 +109,7 @@ def _tool_label(tool_name: str) -> str:
         "get_zone_windows_for_plot": "Getting zone windows…",
         "get_stats_for_annotation": "Computing annotation stats…",
         "plot_time_series_overlay": "Generating overlay chart…",
+        "plot_xy": "Generating XY chart…",
     }
     return labels.get(tool_name, f"Running {tool_name}…")
 
@@ -127,12 +142,13 @@ async def _prepare_context(
         f"Duration: {duration}s\n\n"
         f"IMPORTANT: To get the file path for any topic other than the stat file, "
         f"call get_topic_file(topic_name) — it downloads the file and returns its local path.\n"
-        f"Do NOT describe what you plan to do — immediately delegate to the appropriate "
-        f"sub-agent and return its answer.\n\n"
+        f"Use your tools directly to answer the question. Do NOT mention routing or sub-agents.\n\n"
         f"User question: {message}"
     )
     return context, stat_file_path
 
+
+_PLOT_TOOLS = {"plot_time_series", "plot_lap_overlay", "plot_track_map", "plot_gg_diagram", "plot_xy"}
 
 _SCHEMA_KEYWORDS = {"what data", "what topics", "what columns", "what files", "available topics",
                     "available columns", "what is available", "what do i have", "data available"}
@@ -190,7 +206,7 @@ async def stream_ask(request: QueryRequest):
         adk_session = await session_service.create_session(app_name="race-analysis", user_id="user")
 
         response_text = ""
-        last_text = ""
+        captured_figures: list[dict] = []
         try:
             async for event in runner.run_async(
                 user_id="user",
@@ -202,18 +218,34 @@ async def stream_ask(request: QueryRequest):
                         if hasattr(part, "function_call") and part.function_call:
                             label = _tool_label(part.function_call.name)
                             yield f"data: {json.dumps({'type': 'status', 'text': label})}\n\n"
-                        if hasattr(part, "text") and part.text:
-                            last_text = part.text
+                        elif hasattr(part, "function_response") and part.function_response:
+                            # Intercept plot tool results directly — don't rely on the LLM
+                            # to embed the large figure dict in its text response.
+                            fn = part.function_response
+                            if fn.name in _PLOT_TOOLS:
+                                resp = fn.response if isinstance(fn.response, dict) else {}
+                                if "data" in resp and "layout" in resp:
+                                    captured_figures.append(resp)
+                        elif hasattr(part, "text") and part.text and not event.is_final_response():
+                            snippet = part.text.strip().splitlines()[0][:120]
+                            yield f"data: {json.dumps({'type': 'status', 'text': snippet})}\n\n"
 
                 if event.is_final_response() and event.content:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             response_text += part.text
 
-            if not response_text.strip():
-                response_text = last_text
+            # Parse whatever text the model returned
+            report = _parse_report(response_text) if response_text.strip() else {
+                "title": "Analysis", "sections": [],
+            }
 
-            yield f"data: {json.dumps({'type': 'done', 'report': _parse_report(response_text)})}\n\n"
+            # Inject captured figures that the model failed to embed itself
+            already_embedded = sum(1 for s in report.get("sections", []) if s.get("type") == "plot")
+            for fig in captured_figures[already_embedded:]:
+                report.setdefault("sections", []).append({"type": "plot", "figure": fig, "caption": ""})
+
+            yield f"data: {json.dumps({'type': 'done', 'report': report})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"

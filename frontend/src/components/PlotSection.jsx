@@ -1,6 +1,11 @@
 import Plot from 'react-plotly.js'
 
-export default function PlotSection({ figure, caption }) {
+export default function PlotSection({ figure: rawFigure, caption }) {
+  // LLMs sometimes double-serialize the figure as a JSON string
+  let figure = rawFigure
+  if (typeof figure === 'string') {
+    try { figure = JSON.parse(figure) } catch { return null }
+  }
   if (!figure || !figure.data) return null
 
   return (

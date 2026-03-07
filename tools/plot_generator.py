@@ -12,6 +12,8 @@ manageable. Time axis is normalised to seconds-from-start-of-window.
 
 from pathlib import Path
 
+import pandas as pd
+
 from tools.csv_loader import _load_raw
 
 
@@ -255,6 +257,88 @@ def make_gg_diagram(
             "title": {"text": "GG Diagram"},
             "xaxis": {"title": {"text": "Lateral Acceleration (g)"}, "zeroline": True},
             "yaxis": {"title": {"text": "Longitudinal Acceleration (g)"}, "zeroline": True},
+            "template": _DARK,
+        },
+    }
+
+
+def make_xy_plot(
+    x_file_path: str,
+    x_column: str,
+    y_file_path: str,
+    y_column: str,
+    title: str,
+    x_label: str,
+    y_label: str,
+    t_start: float | None = None,
+    t_end: float | None = None,
+    x_scale: float = 1.0,
+    y_scale: float = 1.0,
+    max_points: int = 300,
+) -> dict:
+    """
+    Generate a scatter/line plot of any column vs any other column, optionally
+    from two different topic files. The two files are aligned by timestamp.
+
+    Use for requests like:
+    - "speed vs distance"
+    - "steering angle vs speed"
+    - "brake pressure vs lateral G"
+
+    Args:
+        x_file_path: Path to the CSV containing the X column.
+        x_column:    Column name for the X axis.
+        y_file_path: Path to the CSV containing the Y column (can be same file).
+        y_column:    Column name for the Y axis.
+        title:       Chart title.
+        x_label:     X-axis label with units.
+        y_label:     Y-axis label with units.
+        t_start:     Optional start time filter.
+        t_end:       Optional end time filter.
+        x_scale:     Multiply X values by this factor.
+        y_scale:     Multiply Y values by this factor.
+        max_points:  Max data points (default 300).
+
+    Returns:
+        Plotly figure dict or {"error": "..."}.
+    """
+    x_df = _load_and_filter(x_file_path, t_start, t_end, max_points)
+    if x_column not in x_df.columns:
+        available = [c for c in x_df.columns if c != "t"]
+        return {"error": f"Column '{x_column}' not found in x file. Available: {available}"}
+
+    if x_file_path == y_file_path:
+        merged = x_df
+    else:
+        y_df = _load_and_filter(y_file_path, t_start, t_end, max_points * 4)
+        if y_column not in y_df.columns:
+            available = [c for c in y_df.columns if c != "t"]
+            return {"error": f"Column '{y_column}' not found in y file. Available: {available}"}
+        merged = pd.merge_asof(
+            x_df[["t", x_column]].sort_values("t"),
+            y_df[["t", y_column]].sort_values("t"),
+            on="t",
+            direction="nearest",
+        )
+        if len(merged) > max_points:
+            step = max(1, len(merged) // max_points)
+            merged = merged.iloc[::step].head(max_points)
+
+    if y_column not in merged.columns:
+        return {"error": f"Column '{y_column}' not available after alignment."}
+
+    return {
+        "data": [{
+            "type": "scatter",
+            "x": (merged[x_column] * x_scale).round(4).tolist(),
+            "y": (merged[y_column] * y_scale).round(4).tolist(),
+            "mode": "lines",
+            "name": f"{y_column} vs {x_column}",
+        }],
+        "layout": {
+            "title": {"text": title},
+            "xaxis": {"title": {"text": x_label}},
+            "yaxis": {"title": {"text": y_label}},
             "template": _DARK,
         },
     }

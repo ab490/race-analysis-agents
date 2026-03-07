@@ -27,6 +27,7 @@ from tools.plot_generator import (
     make_multi_lap_overlay,
     make_time_series,
     make_track_map,
+    make_xy_plot,
 )
 from tools.query_engine import (
     find_threshold_events,
@@ -657,6 +658,51 @@ def plot_track_map(
     return make_track_map(stat_file_path, color_column, color_label, t_start, t_end)
 
 
+def plot_xy(
+    x_file_path: str,
+    x_column: str,
+    y_file_path: str,
+    y_column: str,
+    title: str,
+    x_label: str,
+    y_label: str,
+    t_start: float | None = None,
+    t_end: float | None = None,
+    x_scale: float = 1.0,
+    y_scale: float = 1.0,
+) -> dict:
+    """
+    Plot any column against any other column (from the same or different topic files).
+
+    Use this for requests like:
+    - "speed vs distance" (x=cumulative_distance from stat file, y=actual_velocity_mps from ControlStatus)
+    - "steering angle vs speed"
+    - "brake pressure vs lateral G"
+    - Any "X vs Y" chart where X is not time
+
+    If the two columns are in different files, they are aligned by timestamp automatically.
+    Pass the same path for x_file_path and y_file_path when both columns are in one file.
+
+    Args:
+        x_file_path: Path to the CSV containing the X-axis column.
+        x_column:    Column name for the X axis.
+        y_file_path: Path to the CSV containing the Y-axis column.
+        y_column:    Column name for the Y axis.
+        title:       Chart title.
+        x_label:     X-axis label with units (e.g. "Distance (m)").
+        y_label:     Y-axis label with units (e.g. "Speed (m/s)").
+        t_start:     Optional start time filter.
+        t_end:       Optional end time filter.
+        x_scale:     Multiply X values by this factor.
+        y_scale:     Multiply Y values by this factor.
+
+    Returns:
+        Plotly figure dict or {"error": "..."} with available columns.
+    """
+    return make_xy_plot(x_file_path, x_column, y_file_path, y_column,
+                        title, x_label, y_label, t_start, t_end, x_scale, y_scale)
+
+
 def plot_gg_diagram(
     imu_file_path: str,
     lat_accel_col: str = "linear_acceleration_y",
@@ -745,6 +791,8 @@ Users can ask anything — your job is to figure out how to answer it using the 
    - Lap-by-lap comparison of a signal → plot_lap_overlay (pass lap_boundaries as lap_windows)
    - Track position / heatmap → plot_track_map (needs stat file)
    - Acceleration envelope → plot_gg_diagram (needs Imu file)
+   - Any "X vs Y" where X is not time (e.g. speed vs distance, steering vs speed) → plot_xy
+     For speed vs distance: x_file_path=stat file, x_column="cumulative_distance", y_file_path=ControlStatus file, y_column="actual_velocity_mps"
    Include the figure dict verbatim from the tool result — do NOT modify it.
 
 6. **Handle tool errors by retrying — never give up on the first error.**
@@ -827,5 +875,6 @@ Rules:
         plot_lap_overlay,
         plot_track_map,
         plot_gg_diagram,
+        plot_xy,
     ],
 )
