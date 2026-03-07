@@ -1,4 +1,0 @@
-stamp,imu_type,mapping,initial_alignment_velocity,heave_window,alignment_mode,relative_ins_output_frame
-"builtin_interfaces.msg.Time(sec=1751477682, nanosec=73501488)",41,5,50,20,novatel_oem7_msgs.msg.INSAlignmentMode(mode=3),novatel_oem7_msgs.msg.INSOutputFrame(frame=1)
-"builtin_interfaces.msg.Time(sec=1751477982, nanosec=90201487)",41,5,50,20,novatel_oem7_msgs.msg.INSAlignmentMode(mode=3),novatel_oem7_msgs.msg.INSOutputFrame(frame=1)
-"builtin_interfaces.msg.Time(sec=1751478282, nanosec=77899895)",41,5,50,20,novatel_oem7_msgs.msg.INSAlignmentMode(mode=3),novatel_oem7_msgs.msg.INSOutputFrame(frame=1)
