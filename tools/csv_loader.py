@@ -93,7 +93,11 @@ def _parse_filename(filename: str) -> tuple[str | None, str]:
     if filename.lower().endswith("_stat.csv"):
         return None, _STAT_TOPIC
 
-    m = _FILENAME_RE.match(filename)
+    # Temp files downloaded from GCS have a prefix like 'tmpXXXXXX_' — strip it
+    # so the underlying rosbag2 filename can be matched.
+    canonical = re.sub(r"^tmp[a-z0-9]+_", "", filename)
+
+    m = _FILENAME_RE.match(canonical)
     if not m:
         raise ValueError(
             f"Filename '{filename}' does not match expected pattern "

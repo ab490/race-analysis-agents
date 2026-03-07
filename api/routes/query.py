@@ -66,6 +66,8 @@ async def ask(request: QueryRequest):
         f"Available topics: {schema.get('topics', [])}\n"
         f"Lap boundaries: {lap_boundaries}\n"
         f"Duration: {duration}s\n\n"
+        f"IMPORTANT: You have all the file paths above. Do NOT describe what you plan to do — "
+        f"immediately delegate to the appropriate sub-agent and return its answer.\n\n"
         f"User question: {request.message}"
     )
 
@@ -105,15 +107,36 @@ async def ask(request: QueryRequest):
             except OSError:
                 pass
 
-    # The orchestrator returns a report dict as text — parse it
+    # The orchestrator returns a report dict as text — parse it.
+    # Try json.loads first, then ast.literal_eval, then strip markdown fences and retry.
     import ast
-    try:
-        report = ast.literal_eval(response_text)
-    except Exception:
-        # If the agent returned plain text rather than a dict, wrap it
-        report = {
+    import json
+    import re
+
+    def _parse_report(text: str) -> dict:
+        # Strip markdown code fences if present (```python ... ``` or ``` ... ```)
+        stripped = re.sub(r"^```[a-z]*\n?", "", text.strip(), flags=re.MULTILINE)
+        stripped = re.sub(r"\n?```$", "", stripped.strip(), flags=re.MULTILINE)
+        stripped = stripped.strip()
+
+        for candidate in (text.strip(), stripped):
+            try:
+                result = json.loads(candidate)
+                if isinstance(result, dict):
+                    return result
+            except Exception:
+                pass
+            try:
+                result = ast.literal_eval(candidate)
+                if isinstance(result, dict):
+                    return result
+            except Exception:
+                pass
+
+        # Fallback: wrap plain text
+        return {
             "title": "Response",
-            "sections": [{"type": "text", "content": response_text}],
+            "sections": [{"type": "text", "content": text}],
         }
 
-    return report
+    return _parse_report(response_text)

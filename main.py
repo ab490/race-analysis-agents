@@ -1,6 +1,1 @@
-def main():
-    print("Hello from race-analysis-agents!")
-
-
-if __name__ == "__main__":
-    main()
+from api.main import app  # noqa: F401 — re-export for uvicorn main:app
