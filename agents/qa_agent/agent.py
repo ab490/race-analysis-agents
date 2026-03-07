@@ -441,6 +441,71 @@ def sector_times(stat_file_path: str) -> dict:
     return {"zones": list(result.keys()), "sector_times": result}
 
 
+def compute_resultant(
+    file_path: str,
+    columns: list[str],
+    t_start: float | None = None,
+    t_end: float | None = None,
+) -> dict:
+    """
+    Compute the vector magnitude (sqrt of sum of squares) of 2 or 3 columns,
+    then return statistics on the result.
+
+    Use this whenever a metric is stored as components rather than a single value:
+    - Resultant linear speed from velocity_x, velocity_y (or add velocity_z)
+    - Total linear acceleration from linear_acceleration_x/y/z
+    - Resultant angular velocity from angular_velocity_x/y/z
+    - Net force or any other vector quantity split across axes
+
+    Example: compute_resultant(path, ["angular_velocity_x", "angular_velocity_y",
+             "angular_velocity_z"]) returns stats for sqrt(x²+y²+z²).
+
+    Args:
+        file_path: Path to the topic CSV.
+        columns:   2 or 3 column names whose squares will be summed under sqrt.
+        t_start:   Optional start time filter.
+        t_end:     Optional end time filter.
+
+    Returns:
+        Dict with min, max, mean, std, p25, p50, p75, p95, count, and
+        'resultant_of' listing the source columns.
+        On error, returns {"error": "...", "available_columns": [...]}.
+    """
+    try:
+        df = _load_raw(Path(file_path))
+    except Exception as e:
+        return {"error": str(e)}
+
+    available = [c for c in df.columns if c != "t"]
+    missing = [c for c in columns if c not in df.columns]
+    if missing:
+        return {"error": f"Columns not found: {missing}", "available_columns": available}
+
+    if t_start is not None:
+        df = df[df["t"] >= t_start]
+    if t_end is not None:
+        df = df[df["t"] <= t_end]
+
+    if df.empty:
+        return {"error": "No data in the specified time range.", "available_columns": available}
+
+    import numpy as np
+    resultant = np.sqrt(sum(df[c] ** 2 for c in columns))
+
+    return {
+        "resultant_of": columns,
+        "min": round(float(resultant.min()), 4),
+        "max": round(float(resultant.max()), 4),
+        "mean": round(float(resultant.mean()), 4),
+        "std": round(float(resultant.std()), 4),
+        "p25": round(float(resultant.quantile(0.25)), 4),
+        "p50": round(float(resultant.quantile(0.50)), 4),
+        "p75": round(float(resultant.quantile(0.75)), 4),
+        "p95": round(float(resultant.quantile(0.95)), 4),
+        "count": int(resultant.count()),
+    }
+
+
 def detect_anomalies(
     file_path: str,
     column: str,
@@ -641,12 +706,17 @@ Users can ask anything — your job is to figure out how to answer it using the 
    Identify: which signal(s), over what time range (full session / specific lap / time window),
    and what kind of answer (single number / time series / event list / comparison).
 
-2. **Identify which file contains the needed column.**
-   Your context includes "Available topics and columns" — check it to find which
-   topic has the column you need. Then call get_topic_file(topic_name) to download
-   it and get its local path. Pass that path to the query or plot tool.
-   If you are still unsure which topic has a column, call describe_uploaded_files
-   with the stat file path to get the schema.
+2. **Identify which file contains the needed column — always from actual data.**
+   Your context includes "Available topics and columns" — this is the ground truth.
+   Check it first. Find which topic has the column closest to what the user asked for.
+   Then call get_topic_file(topic_name) to download it and get its local path.
+
+   If the exact column doesn't exist, look for alternatives:
+   - Speed may be stored as actual_velocity_mps, hor_speed, vel_magnitude, or
+     as components (velocity_x/y/z) — use compute_resultant for components
+   - Acceleration may be linear_acceleration_x/y/z — use compute_resultant for magnitude
+   - Angular rate may be angular_velocity_x/y/z — use compute_resultant for magnitude
+   - Always pick the most relevant available column rather than giving up
 
 3. **Resolve lap window if needed.**
    If the user says "in lap 3" or "during lap 2", call resolve_lap_window first
@@ -654,6 +724,7 @@ Users can ask anything — your job is to figure out how to answer it using the 
 
 4. **Call the right query tool.**
    - Single stat (max/min/mean/range) → stats_for_column
+   - Metric stored as x/y/z components → compute_resultant (e.g. sqrt(vx²+vy²+vz²))
    - Stat scoped to a track segment/zone → stats_for_zone (pass stat file + data file)
    - "When did X happen?" or "how long was X above Y?" → events_above_threshold
    - "Show me X over time" or trend questions → signal_over_time
@@ -686,7 +757,7 @@ Users can ask anything — your job is to figure out how to answer it using the 
    - Round numbers to 2 decimal places
    - If no relevant column exists at all, tell the user what IS available
 
-## Common topic-to-column mappings
+## Common topic-to-column mappings (hints only — always verify against actual context)
 | What user asks about | File topic | Key columns |
 |---|---|---|
 | Speed / velocity | ControlStatus | actual_velocity_mps, target_velocity_mps |
@@ -742,6 +813,7 @@ For answers with plots, interleave text and plot sections naturally.
         stint_trend,
         sector_times,
         detect_anomalies,
+        compute_resultant,
         plot_time_series,
         plot_lap_overlay,
         plot_track_map,

@@ -20,8 +20,10 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import BaseModel
 
-from agents.orchestrator.agent import root_agent
 from agents.qa_agent.agent import _session_ctx, _tempdir_ctx
+from agents.qa_agent.agent import root_agent as qa_agent
+from agents.data_agent.agent import root_agent as data_agent
+from agents.orchestrator.agent import root_agent as orchestrator_agent
 from tools.gcs_store import download_raw_file, load_session_meta, session_exists
 
 router = APIRouter()
@@ -62,7 +64,6 @@ def _parse_report(text: str) -> dict:
 def _tool_label(tool_name: str) -> str:
     """Return a human-readable status string for a tool call."""
     labels = {
-        "transfer_to_agent": "Routing to analysis agent…",
         "get_topic_file": "Downloading topic data…",
         "describe_uploaded_files": "Discovering available data…",
         "stats_for_column": "Computing statistics…",
@@ -76,6 +77,7 @@ def _tool_label(tool_name: str) -> str:
         "stint_trend": "Computing stint trend…",
         "sector_times": "Computing sector times…",
         "detect_anomalies": "Detecting anomalies…",
+        "compute_resultant": "Computing resultant magnitude…",
         "plot_time_series": "Generating time series chart…",
         "plot_lap_overlay": "Generating lap overlay chart…",
         "plot_track_map": "Generating track map…",
@@ -123,10 +125,22 @@ async def _prepare_context(
     return context, stat_file_path
 
 
-def _make_runner() -> tuple[Runner, InMemorySessionService]:
+_SCHEMA_KEYWORDS = {"what data", "what topics", "what columns", "what files", "available topics",
+                    "available columns", "what is available", "what do i have", "data available"}
+
+
+def _pick_agent(message: str):
+    """Pick the right agent directly without an LLM routing call."""
+    lower = message.lower()
+    if any(kw in lower for kw in _SCHEMA_KEYWORDS):
+        return data_agent
+    return qa_agent
+
+
+def _make_runner(agent) -> tuple[Runner, InMemorySessionService]:
     session_service = InMemorySessionService()
     runner = Runner(
-        agent=root_agent,
+        agent=agent,
         app_name="race-analysis",
         session_service=session_service,
     )
@@ -162,11 +176,12 @@ async def stream_ask(request: QueryRequest):
         token_session = _session_ctx.set(request.session_id)
         token_tempdir = _tempdir_ctx.set(temp_dir)
 
-        runner, session_service = _make_runner()
+        agent = _pick_agent(request.message)
+        runner, session_service = _make_runner(agent)
         adk_session = await session_service.create_session(app_name="race-analysis", user_id="user")
 
         response_text = ""
-        fallback_text = ""  # last text seen from any agent/event
+        last_text = ""
         try:
             async for event in runner.run_async(
                 user_id="user",
@@ -175,25 +190,19 @@ async def stream_ask(request: QueryRequest):
             ):
                 if event.content and event.content.parts:
                     for part in event.content.parts:
-                        # Emit status for each tool call
                         if hasattr(part, "function_call") and part.function_call:
                             label = _tool_label(part.function_call.name)
                             yield f"data: {json.dumps({'type': 'status', 'text': label})}\n\n"
-
-                        # Track all text as fallback (sub-agent responses may not be
-                        # marked is_final_response at the orchestrator runner level)
                         if hasattr(part, "text") and part.text:
-                            fallback_text = part.text
+                            last_text = part.text
 
-                # Prefer the explicitly marked final response
                 if event.is_final_response() and event.content:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             response_text += part.text
 
-            # Fall back to the last text seen if the final response was empty
             if not response_text.strip():
-                response_text = fallback_text
+                response_text = last_text
 
             yield f"data: {json.dumps({'type': 'done', 'report': _parse_report(response_text)})}\n\n"
 
