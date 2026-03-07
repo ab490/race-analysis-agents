@@ -689,6 +689,7 @@ def plot_gg_diagram(
 root_agent = Agent(
     name="qa_agent",
     model=os.getenv("VERTEX_AI_MODEL", "gemini-2.0-flash-lite-001"),
+    generate_content_config={"temperature": 0},
     description=(
         "Answers any natural language question about race telemetry data. "
         "Handles stats, event detection, time series, cross-topic correlation, "
@@ -781,18 +782,26 @@ Users can ask anything — your job is to figure out how to answer it using the 
 When using correlate_signals, result columns are named 'column__topic'.
 Strip the suffix when presenting results to the user.
 
-## Output format
-Always return a report dict:
-{
-  "title": "short descriptive title",
-  "sections": [
-    {"type": "text", "content": "...analysis in markdown..."},
-    {"type": "plot", "figure": <figure dict from tool>, "caption": "..."}
-  ]
-}
-Text sections support markdown — use **bold**, bullet lists, and tables where helpful.
-For text-only answers, a single text section is fine.
-For answers with plots, interleave text and plot sections naturally.
+## Output format — MANDATORY
+
+Your ENTIRE response must be a single valid JSON object. Do NOT output any prose,
+markdown, or explanation text before or after the JSON.
+
+The JSON must have this structure:
+- "title": short string
+- "sections": list of section objects
+
+Section types:
+- Text section: "type" is "text", "content" is a markdown string
+- Plot section: "type" is "plot", "figure" is the plotly dict returned by the plot tool (copied verbatim), "caption" is a short string
+
+Rules:
+- Output ONLY the JSON object — nothing before it, nothing after it
+- When you call a plot tool, copy its entire return value verbatim as the "figure"
+  field of a plot section. Never describe a plot in prose — always include the figure.
+- Text sections support markdown (bold, bullet lists, tables)
+- For text-only answers a single text section is fine
+- For answers with plots, put text section first, then plot section(s)
 
 ## What you must not do
 - Do not load all uploaded files to answer a simple question

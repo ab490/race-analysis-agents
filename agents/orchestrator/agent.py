@@ -53,9 +53,9 @@ When in doubt, always route to **qa_agent**.
 - Never ask which agent to use — always decide yourself, default to qa_agent
 - Never call more than one sub-agent per question
 
-## Response format
-Return a JSON report dict as your final response:
-{"title": "...", "sections": [{"type": "text", "content": "..."}, {"type": "plot", "figure": {...}, "caption": "..."}]}
+## Response format — MANDATORY
+Your ENTIRE response must be a single valid JSON object with no text before or after it.
+Keys: "title" (string) and "sections" (list of objects with "type"/"content" for text or "type"/"figure"/"caption" for plots).
 """,
     sub_agents=[
         data_agent,

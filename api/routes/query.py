@@ -40,11 +40,20 @@ class QueryRequest(BaseModel):
 
 def _parse_report(text: str) -> dict:
     """Parse agent output (JSON string, possibly wrapped in markdown fences) into a report dict."""
+    # Strip markdown code fences
     stripped = re.sub(r"^```[a-z]*\n?", "", text.strip(), flags=re.MULTILINE)
     stripped = re.sub(r"\n?```$", "", stripped.strip(), flags=re.MULTILINE)
     stripped = stripped.strip()
 
-    for candidate in (text.strip(), stripped):
+    candidates = [text.strip(), stripped]
+
+    # Also try to extract a JSON object embedded anywhere in the text
+    # (handles cases where the model outputs prose then a JSON block)
+    brace_match = re.search(r'\{.*\}', text, flags=re.DOTALL)
+    if brace_match:
+        candidates.append(brace_match.group(0))
+
+    for candidate in candidates:
         try:
             result = json.loads(candidate)
             if isinstance(result, dict):

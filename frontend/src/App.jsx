@@ -17,7 +17,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0f1117] text-slate-100 flex flex-col">
       {/* Navbar */}
-      <header className="border-b border-slate-800 px-6 py-3 flex items-center gap-6">
+      <header className="print:hidden border-b border-slate-800 px-6 py-3 flex items-center gap-6">
         <span className="font-bold text-lg tracking-tight text-white">Race Analysis</span>
         <nav className="flex gap-4 text-sm">
           <button
