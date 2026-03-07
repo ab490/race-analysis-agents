@@ -14,7 +14,7 @@ A platform for autonomous race car telemetry analysis. Engineers and drivers upl
 - **GCP Vertex AI** — LLM runtime (Gemini)
 - **FastAPI** — REST API
 - **Google Cloud Storage** — all persistent storage
-- **React + TypeScript + Plotly.js** — frontend (not yet built)
+- **React + Vite + Tailwind + Plotly.js** — frontend (built, in `frontend/`)
 
 ---
 
@@ -26,7 +26,8 @@ race-analysis-agents/
 │   ├── orchestrator/     # entry point — routes to sub-agents
 │   ├── data_agent/       # schema discovery
 │   ├── qa_agent/         # natural language Q&A over telemetry
-│   └── plot_agent/       # Plotly chart generation (uses BuiltInCodeExecutor)
+│   ├── plot_agent/       # server-side Plotly chart generation
+│   └── insights_agent/   # NOT YET IMPLEMENTED (folder + __init__.py only)
 ├── tools/
 │   ├── csv_loader.py     # CSV parsing, timestamp normalisation, session alignment
 │   ├── lap_detector.py   # ENU→lat/lon conversion, cumulative distance, lap detection
@@ -39,6 +40,13 @@ race-analysis-agents/
 │       ├── upload.py     # POST /upload/session, POST /upload/track, GET /upload/sessions
 │       ├── query.py      # POST /query/ask
 │       └── tracks.py     # GET /tracks/, GET /tracks/{track_id}
+├── frontend/             # React + Vite + Tailwind frontend
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── api.js        # axios API client (proxies /api → localhost:8000)
+│   │   ├── pages/        # UploadPage.jsx, ChatPage.jsx
+│   │   └── components/   # ReportView.jsx, PlotSection.jsx
+│   └── vite.config.js    # proxy config + Tailwind plugin
 ├── tests/
 └── data/                 # sample CSVs for development
 ```
@@ -107,9 +115,10 @@ Each agent lives in `agents/<name>/agent.py` and exposes `root_agent`. Tools are
 | `orchestrator` | Routes questions to the right sub-agent(s); assembles combined reports |
 | `data_agent` | Discovers available topics and columns from file schema |
 | `qa_agent` | Stats, event detection, cross-topic correlation, lap/zone-scoped queries |
-| `plot_agent` | Generates Plotly charts via `BuiltInCodeExecutor` (Gemini native code execution) |
+| `plot_agent` | Generates Plotly charts via server-side tools in `tools/plot_generator.py` |
+| `insights_agent` | NOT YET IMPLEMENTED |
 
-`plot_agent` uses `BuiltInCodeExecutor` — NOT `VertexAiCodeExecutor`. Do not switch back; the Vertex version creates GCP Extension resources on every import.
+`plot_agent` does NOT use `BuiltInCodeExecutor` or `VertexAiCodeExecutor` — both are incompatible with Vertex AI custom function tools ("Multiple tools supported only when all are search tools"). Instead, `tools/plot_generator.py` generates complete Plotly figure dicts server-side; the agent calls these as tools and returns the figure dict verbatim.
 
 ---
 
@@ -180,11 +189,14 @@ All agent responses follow this structure:
 
 ```bash
 uv sync                                     # install dependencies
-uv run uvicorn api.main:app --reload        # run API (dev)
+uv run uvicorn main:app --reload            # run API (dev, defaults to port 8000)
 uv run pytest                               # run all tests
 uv run pytest tests/test_csv_loader.py      # run single test file
 uv run ruff check .                         # lint
 uv run ruff format .                        # format
+
+cd frontend && npm install                  # install frontend deps
+cd frontend && npm run dev                  # frontend dev server (port 5173)
 ```
 
 ---
@@ -207,7 +219,43 @@ GCS_BUCKET_NAME=
 - Never hardcode GCP project IDs, bucket names, or coordinates — use env vars
 
 ## What NOT to Do
-- Don't use `VertexAiCodeExecutor` — it creates GCP Extension resources. Use `BuiltInCodeExecutor`.
+- Don't use `BuiltInCodeExecutor` or `VertexAiCodeExecutor` — both are broken on Vertex AI with custom tools
 - Don't use plain `openai` or `anthropic` SDKs — everything goes through Vertex AI
 - Don't let agents parse CSVs directly — always go through the tools layer
-- Don't build the frontend until the agent layer is working end-to-end
+
+---
+
+## Frontend
+
+```bash
+cd frontend && npm run dev    # dev server at http://localhost:5173
+cd frontend && npm run build  # production build
+```
+
+- Vite proxy: `/api/*` → `http://localhost:8000` (strips `/api` prefix)
+- Two pages: `UploadPage` (track + session upload), `ChatPage` (session selector + chat)
+- `ReportView` renders `{type: text}` and `{type: plot}` sections from agent responses
+- `PlotSection` wraps `react-plotly.js` — receives figure dict directly from API
+
+---
+
+## Known Issues / TODO
+
+### High priority
+1. **Orchestrator sometimes answers from context without delegating to sub-agents** — observed
+   when it has enough info in the context string to guess an answer. Fix: strengthen orchestrator
+   instruction to always delegate.
+2. **`insights_agent` not implemented** — folder exists with only `__init__.py`. Needs:
+   - Lap time summary (fastest/slowest lap, delta per sector)
+   - Anomaly detection (unusual G-forces, wheel slip, temp spikes)
+   - Stint performance trend
+
+### Medium priority
+3. **Frontend: session list doesn't refresh after upload** — user must reload page
+4. **Frontend: no lap boundary display** — users don't know what lap numbers are available
+5. **No streaming responses** — agent runs full query then returns; slow for long queries
+
+### Low priority
+6. **No deployment config** — no Dockerfile, Cloud Run config, or CI/CD pipeline
+7. **No authentication** — API is fully open
+8. **Multi-session comparison** — compare two sessions against each other (not built)
