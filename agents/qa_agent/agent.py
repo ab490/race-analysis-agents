@@ -79,8 +79,12 @@ def stats_for_column(
 
     Returns:
         Dict with min, max, mean, std, p25, p50, p75, p95, count.
+        On error, returns {"error": "...", "available_columns": [...]} so the agent can retry.
     """
-    return get_column_stats(file_path, column, t_start, t_end)
+    try:
+        return get_column_stats(file_path, column, t_start, t_end)
+    except (KeyError, Exception) as e:
+        return {"error": str(e)}
 
 
 def signal_over_time(
@@ -107,8 +111,12 @@ def signal_over_time(
 
     Returns:
         Dict with t (timestamps), data (column → values), total_rows, returned_rows.
+        On error, returns {"error": "...", "available_columns": [...]} so the agent can retry.
     """
-    return get_time_series(file_path, columns, t_start, t_end)
+    try:
+        return get_time_series(file_path, columns, t_start, t_end)
+    except (KeyError, Exception) as e:
+        return {"error": str(e)}
 
 
 def events_above_threshold(
@@ -138,8 +146,12 @@ def events_above_threshold(
     Returns:
         Dict with events list, count, first/last event timestamps,
         and total_duration_seconds the condition was true.
+        On error, returns {"error": "..."} so the agent can retry.
     """
-    return find_threshold_events(file_path, column, operator, threshold, t_start, t_end)
+    try:
+        return find_threshold_events(file_path, column, operator, threshold, t_start, t_end)
+    except (KeyError, ValueError, Exception) as e:
+        return {"error": str(e)}
 
 
 def correlate_signals(
@@ -169,7 +181,10 @@ def correlate_signals(
     Returns:
         Dict with t, data, total_rows, returned_rows, available_columns.
     """
-    return query_cross_topic(file_paths, columns, t_start, t_end)
+    try:
+        return query_cross_topic(file_paths, columns, t_start, t_end)
+    except (KeyError, Exception) as e:
+        return {"error": str(e)}
 
 
 def stats_for_zone(
@@ -198,7 +213,10 @@ def stats_for_zone(
     Returns:
         Dict with zone, column, overall stats, per_lap breakdown, available_zones.
     """
-    return get_column_stats_for_zone(data_file_path, stat_file_path, zone_name, column)
+    try:
+        return get_column_stats_for_zone(data_file_path, stat_file_path, zone_name, column)
+    except (KeyError, Exception) as e:
+        return {"error": str(e)}
 
 
 def list_zones(stat_file_path: str) -> dict:
@@ -281,10 +299,16 @@ Users can ask anything — your job is to figure out how to answer it using the 
    - Two or more signals together / correlations → correlate_signals
    - Unsure of zone name → call list_zones with the stat file path first
 
-5. **Answer in plain English.**
+5. **Handle tool errors by retrying — never give up on the first error.**
+   If a tool returns `{"error": "..."}`, read the error message carefully.
+   It always includes the available column names. Pick the most relevant
+   available column and retry immediately. Only tell the user a column is
+   unavailable if there is truly no relevant alternative in the available list.
+
+6. **Answer in plain English.**
    - Convert m/s to mph where helpful (× 2.23694)
    - Round numbers to 2 decimal places
-   - If a column is missing, tell the user what IS available
+   - If no relevant column exists at all, tell the user what IS available
 
 ## Common topic-to-column mappings
 | What user asks about | File topic | Key columns |

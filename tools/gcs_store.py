@@ -167,7 +167,7 @@ def download_raw_file(session_id: str, topic: str) -> str:
     # avoid incorrectly requiring a double underscore ('__stat').
     matching = [
         blob for blob in bucket.list_blobs(prefix=prefix)
-        if Path(blob.name).stem.endswith(topic) or Path(blob.name).stem == topic
+        if Path(blob.name).stem.lower().endswith(topic.lower()) or Path(blob.name).stem.lower() == topic.lower()
     ]
 
     if not matching:

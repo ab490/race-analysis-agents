@@ -46,10 +46,10 @@ def _parse_start_finish(segments_df: pd.DataFrame) -> tuple[float, float]:
     if sf.empty:
         raise HTTPException(
             status_code=422,
-            detail="segments CSV must have a 'start_finish' row as the first entry.",
+            detail="segments CSV must have a 'start_finish' row.",
         )
     row = sf.iloc[0]
-    return float(row["start_lat"]), float(row["start_lon"])
+    return float(row["lat"]), float(row["lon"])
 
 
 def _parse_kml_centerline(kml_bytes: bytes) -> pd.DataFrame:
@@ -72,20 +72,27 @@ def _assign_zones(stat_df: pd.DataFrame, centerline_df: pd.DataFrame, segments_d
     Assign a track zone/segment label to each row of the stat DataFrame
     using nearest-neighbour matching against the KML centerline.
 
-    Strategy (mirrors existing racing-data-analysis-tool):
-    1. For each segment boundary pair, find the closest centerline points
-    2. Assign zone labels to centerline rows
-    3. Match each stat row to the nearest centerline point → inherit its zone
+    Segments CSV format: segment, lat, lon
+    - Each segment's start is its own lat/lon
+    - Each segment's end is the next segment's lat/lon
+    - The last segment ends at the start_finish coordinate
     """
     centerline_df = centerline_df.copy()
     centerline_df["zone"] = "default"
 
-    track_segments = segments_df[segments_df["segment"] != "start_finish"]
+    track_segments = segments_df[segments_df["segment"] != "start_finish"].reset_index(drop=True)
 
-    for _, row in track_segments.iterrows():
-        zone = row["segment"]
-        start = (row["start_lat"], row["start_lon"])
-        end   = (row["end_lat"],   row["end_lon"])
+    for i, row in track_segments.iterrows():
+        zone  = row["segment"]
+        start = (float(row["lat"]), float(row["lon"]))
+
+        # End is the next segment's start; last segment wraps back to s1
+        if i + 1 < len(track_segments):
+            next_row = track_segments.iloc[i + 1]
+            end = (float(next_row["lat"]), float(next_row["lon"]))
+        else:
+            first_row = track_segments.iloc[0]
+            end = (float(first_row["lat"]), float(first_row["lon"]))
 
         start_idx = ((centerline_df["lat"] - start[0]) ** 2 + (centerline_df["lon"] - start[1]) ** 2).idxmin()
         end_idx   = ((centerline_df["lat"] - end[0])   ** 2 + (centerline_df["lon"] - end[1])   ** 2).idxmin()
@@ -164,7 +171,7 @@ async def upload_session(
             )
 
         # Detect session_id from rosbag2 filenames
-        rosbag_files = [f for f in file_paths if not f.endswith("_stat.csv")]
+        rosbag_files = [f for f in file_paths if not Path(f).name.lower().endswith("_stat.csv")]
         if not rosbag_files:
             raise HTTPException(status_code=422, detail="No rosbag2 topic CSV files found.")
 
@@ -208,7 +215,7 @@ async def upload_session(
         save_raw_file(session_id, Path(stat_path).name, enriched_stat_path.read_bytes())
 
         # Update file_paths to use enriched stat
-        file_paths = [f for f in file_paths if not f.endswith("_stat.csv")]
+        file_paths = [f for f in file_paths if not Path(f).name.lower().endswith("_stat.csv")]
         file_paths.append(str(enriched_stat_path))
 
         # Load and align all topics
@@ -260,15 +267,15 @@ async def upload_track(
 
     # Validate segments CSV
     segments_df = pd.read_csv(pd.io.common.BytesIO(segments_bytes))
-    required_cols = {"segment", "start_lat", "start_lon", "end_lat", "end_lon"}
+    required_cols = {"segment", "lat", "lon"}
     missing = required_cols - set(segments_df.columns)
     if missing:
         raise HTTPException(status_code=422, detail=f"segments CSV missing columns: {missing}")
 
-    if segments_df.iloc[0]["segment"] != "start_finish":
+    if "start_finish" not in segments_df["segment"].values:
         raise HTTPException(
             status_code=422,
-            detail="First row of segments CSV must be 'start_finish'.",
+            detail="segments CSV must contain a 'start_finish' row.",
         )
 
     save_track_files(track_id, kml_bytes, segments_bytes)

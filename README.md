@@ -37,16 +37,18 @@ A KML file with the lat/lon trace of the full track centerline. Export from Goog
 Defines the start/finish line and named track segments.
 
 ```csv
-segment,start_lat,start_lon,end_lat,end_lon
-start_finish,36.586462,-121.756647,36.586462,-121.756647
-s1,36.583936,-121.757775,36.583130,-121.757750
-s2,36.583130,-121.757750,36.583196,-121.757016
-s3,36.583196,-121.757016,36.584604,-121.756992
+segment,lat,lon
+start_finish,36.586462,-121.756647
+s1,36.583936,-121.757775
+s2,36.583130,-121.757750
+s3,36.583196,-121.757016
 ```
 
 **Rules:**
-- First row **must** be `start_finish` — set start and end to the same GPS point
-- Remaining rows are segments in lap order; names become zone labels in queries
+- Must contain a `start_finish` row — the GPS coordinate of the start/finish line, used only for lap detection
+- Remaining rows are segments listed in lap order (`s1`, `s2`, `s3`, ...)
+- Each segment starts at its own lat/lon and ends where the next segment begins; the last segment wraps back to `s1`
+- Segment names become zone labels for queries (e.g. "max speed in s1", "brake pressure in s2")
 - Coordinates are decimal degrees (WGS84)
 
 ---

@@ -148,7 +148,7 @@ Each agent lives in `agents/<name>/agent.py` and exposes `root_agent`. Tools are
 
 - **rosbag2 CSVs**: `rosbag2_YYYY_MM_DD-HH_MM_SS_<topic>.csv`; timestamp in `stamp` or `time` column as `builtin_interfaces.msg.Time(sec=X, nanosec=Y)`
 - **stat file**: `*_stat.csv`; must have `position_x`, `position_y` (ENU metres); timestamp in `stamp`, `time`, or `stamp_seconds`
-- **segments CSV**: first row = `start_finish`; columns: `segment, start_lat, start_lon, end_lat, end_lon`
+- **segments CSV**: columns: `segment, lat, lon`; must contain `start_finish` row (lap marker only, not a zone); remaining rows are segments in lap order — each ends where the next begins; last segment wraps back to `s1`
 - **track KML**: standard KML with `<coordinates>` block (lon,lat,alt per point)
 - One session = one rosbag2 prefix (multi-bag sessions not supported)
 

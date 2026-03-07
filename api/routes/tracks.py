@@ -37,8 +37,8 @@ def get_track(track_id: str):
     return {
         "track_id": track_id,
         "start_finish": {
-            "lat": float(start_finish["start_lat"]),
-            "lon": float(start_finish["start_lon"]),
+            "lat": float(start_finish["lat"]),
+            "lon": float(start_finish["lon"]),
         },
         "segments": segments,
     }

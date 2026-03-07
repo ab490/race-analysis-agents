@@ -1,36 +1,38 @@
 """
 Plot Agent — generates Plotly visualisations for any user request.
 
-Uses Gemini's built-in code execution (BuiltInCodeExecutor) so the LLM can write arbitrary
-Plotly code to answer open-ended plot requests like:
-  - "Show acceleration values across track segments"
-  - "Compare brake pressure in lap 1 vs lap 3"
-  - "GG diagram for the full session"
-  - "Speed heatmap on the track map"
+The agent calls server-side plot generation tools that return complete Plotly
+figure dicts. The LLM only specifies what to plot (file path, columns, time
+range, title) — it never has to output raw data arrays.
 
-The agent:
-1. Loads the relevant data via query tools
-2. Writes and executes Python + Plotly code
-3. Returns a report dict (title + text sections + plot sections)
+Supported chart types:
+  - Time series (any signal over time)
+  - Multi-lap overlay (same signal compared across laps)
+  - Track map (lat/lon path, optionally coloured by a signal)
+  - GG diagram (lateral vs longitudinal acceleration)
+
+The agent returns a report dict: {title, sections: [{type: text|plot, ...}]}
 """
 
 import os
 
 from google.adk.agents import Agent
-from google.adk.code_executors import BuiltInCodeExecutor
 
 from tools.csv_loader import get_schema
+from tools.plot_generator import (
+    make_gg_diagram,
+    make_multi_lap_overlay,
+    make_time_series,
+    make_track_map,
+)
 from tools.query_engine import (
     get_column_stats,
-    get_column_stats_for_zone,
-    get_time_series,
     get_zone_time_windows,
-    query_cross_topic,
 )
 
 
 # ---------------------------------------------------------------------------
-# Data access tools (same as qa_agent — agent needs data before plotting)
+# Discovery tools
 # ---------------------------------------------------------------------------
 
 def describe_uploaded_files(file_paths: list[str]) -> dict:
@@ -53,128 +55,11 @@ def describe_uploaded_files(file_paths: list[str]) -> dict:
     return schema
 
 
-def get_data_for_plot(
-    file_path: str,
-    columns: list[str],
-    t_start: float | None = None,
-    t_end: float | None = None,
-) -> dict:
-    """
-    Load time series data for one or more columns from a single topic file.
-
-    Call this to fetch the data you need before writing plot code.
-    Returns up to 1000 points (higher than qa_agent's 500 — plots benefit
-    from more resolution).
-
-    Args:
-        file_path: Path to the rosbag2 CSV file.
-        columns:   Column names to retrieve.
-        t_start:   Optional start time filter (Unix float).
-        t_end:     Optional end time filter (Unix float).
-
-    Returns:
-        Dict with t (timestamps), data (column → values), total_rows, returned_rows.
-    """
-    return get_time_series(file_path, columns, t_start, t_end, max_points=1000)
-
-
-def get_cross_topic_data(
-    file_paths: list[str],
-    columns: list[str],
-    t_start: float | None = None,
-    t_end: float | None = None,
-) -> dict:
-    """
-    Align 2–5 topic files and return columns together for cross-topic plotting.
-
-    Use this when the plot requires signals from different topic files
-    (e.g. GPS position + speed, brake pressure + tire temperature).
-
-    Column names in the result are suffixed with the topic name
-    (e.g. 'actual_velocity_mps__ControlStatus').
-
-    Args:
-        file_paths: 2–5 relevant rosbag2 CSV file paths.
-        columns:    Column names in 'column__topic' format. Pass [] for all.
-        t_start:    Optional start time filter.
-        t_end:      Optional end time filter.
-
-    Returns:
-        Dict with t, data, total_rows, returned_rows, available_columns.
-    """
-    return query_cross_topic(file_paths, columns, t_start, t_end, max_points=1000)
-
-
-def get_stats_for_plot(
-    file_path: str,
-    column: str,
-    t_start: float | None = None,
-    t_end: float | None = None,
-) -> dict:
-    """
-    Get descriptive statistics for a column — useful for annotation on plots
-    or for generating summary bar/box charts.
-
-    Args:
-        file_path: Path to the rosbag2 CSV file.
-        column:    Column name.
-        t_start:   Optional start time filter.
-        t_end:     Optional end time filter.
-
-    Returns:
-        Dict with min, max, mean, std, p25, p50, p75, p95, count.
-    """
-    return get_column_stats(file_path, column, t_start, t_end)
-
-
-def get_zone_windows_for_plot(
-    stat_file_path: str,
-    zone_name: str,
-) -> dict:
-    """
-    Get the time windows for a named track zone — use before plotting zone-scoped data.
-
-    Returns a list of {t_start, t_end, lap} dicts. Pass each window's t_start/t_end
-    into get_data_for_plot to load data for that zone occurrence, then overlay traces
-    per lap on the same chart.
-
-    Args:
-        stat_file_path: Path to the *_stat.csv file.
-        zone_name:      Zone label (e.g. 'sector_1'). Use available_zones from the
-                        response if the exact name is unclear.
-
-    Returns:
-        Dict with zone, windows list, total_windows, available_zones.
-    """
-    return get_zone_time_windows(stat_file_path, zone_name)
-
-
-def get_zone_stats_for_plot(
-    data_file_path: str,
-    stat_file_path: str,
-    zone_name: str,
-    column: str,
-) -> dict:
-    """
-    Get per-lap statistics for a column in a zone — useful for bar/box charts by zone.
-
-    Args:
-        data_file_path: Path to the topic CSV containing the column.
-        stat_file_path: Path to the *_stat.csv file.
-        zone_name:      Track zone label.
-        column:         Column to analyse.
-
-    Returns:
-        Dict with overall stats and per_lap breakdown.
-    """
-    return get_column_stats_for_zone(data_file_path, stat_file_path, zone_name, column)
-
-
 def resolve_lap_window(lap_boundaries: list[dict], lap_number: int) -> dict:
     """
     Resolve a lap number to its start and end timestamps.
 
-    Call this before loading data when the plot is scoped to a specific lap.
+    Call this before plotting when the request is scoped to a specific lap.
 
     Args:
         lap_boundaries: List of dicts with keys 'lap', 't_start', 't_end'.
@@ -190,6 +75,181 @@ def resolve_lap_window(lap_boundaries: list[dict], lap_number: int) -> dict:
     return {"error": f"Lap {lap_number} not found. Available laps: {available}"}
 
 
+def get_zone_windows_for_plot(stat_file_path: str, zone_name: str) -> dict:
+    """
+    Get the time windows for a named track zone.
+
+    Returns a list of {t_start, t_end, lap} dicts — pass the full list as
+    lap_windows to plot_time_series_overlay to get a per-lap overlay chart.
+
+    Args:
+        stat_file_path: Path to the *_stat.csv file.
+        zone_name:      Zone label (e.g. 's1'). Use available_zones from the
+                        response if the exact name is unclear.
+
+    Returns:
+        Dict with zone, windows list, total_windows, available_zones.
+    """
+    return get_zone_time_windows(stat_file_path, zone_name)
+
+
+def get_stats_for_annotation(
+    file_path: str,
+    column: str,
+    t_start: float | None = None,
+    t_end: float | None = None,
+) -> dict:
+    """
+    Get descriptive statistics for a column — use to annotate plot captions
+    with min/max/mean values.
+
+    Args:
+        file_path: Path to the rosbag2 CSV file.
+        column:    Column name.
+        t_start:   Optional start time filter.
+        t_end:     Optional end time filter.
+
+    Returns:
+        Dict with min, max, mean, std, p25, p50, p75, p95, count.
+    """
+    try:
+        return get_column_stats(file_path, column, t_start, t_end)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Plot generation tools — each returns a complete Plotly figure dict
+# ---------------------------------------------------------------------------
+
+def plot_time_series(
+    file_path: str,
+    columns: list[str],
+    title: str,
+    y_label: str,
+    t_start: float | None = None,
+    t_end: float | None = None,
+    y_scale: float = 1.0,
+) -> dict:
+    """
+    Generate a time-series chart for one or more columns from a single CSV file.
+
+    Use for any "plot X over time" request. Returns a complete Plotly figure dict
+    — include it verbatim under "figure" in a plot section of your report.
+
+    If the tool returns {"error": "..."}, read the available columns listed in
+    the error and retry with the correct column name.
+
+    Args:
+        file_path: Path to the topic CSV.
+        columns:   List of column names to plot.
+        title:     Chart title.
+        y_label:   Y-axis label including units (e.g. "Speed (m/s)").
+        t_start:   Optional start time filter (Unix float).
+        t_end:     Optional end time filter (Unix float).
+        y_scale:   Multiply all y values by this factor (e.g. 2.23694 for m/s→mph,
+                   1/9.80665 to convert m/s² → g).
+
+    Returns:
+        Plotly figure dict {"data": [...], "layout": {...}} or {"error": "..."}.
+    """
+    return make_time_series(file_path, columns, title, y_label, t_start, t_end, y_scale)
+
+
+def plot_time_series_overlay(
+    file_path: str,
+    column: str,
+    lap_windows: list[dict],
+    title: str,
+    y_label: str,
+    y_scale: float = 1.0,
+) -> dict:
+    """
+    Overlay the same signal across multiple laps on one chart.
+
+    Use for lap comparison requests like "compare brake pressure in lap 1 vs lap 3"
+    or "overlay speed across all laps in sector s1".
+
+    Pass lap_windows as a list of {lap, t_start, t_end} dicts — either from
+    resolve_lap_window (for specific laps) or get_zone_windows_for_plot (for all
+    occurrences of a zone).
+
+    If the tool returns {"error": "..."}, read the available columns and retry.
+
+    Args:
+        file_path:   Path to the topic CSV.
+        column:      Column to compare across laps.
+        lap_windows: List of {lap, t_start, t_end} dicts.
+        title:       Chart title.
+        y_label:     Y-axis label with units.
+        y_scale:     Multiply y values by this factor.
+
+    Returns:
+        Plotly figure dict {"data": [...], "layout": {...}} or {"error": "..."}.
+    """
+    return make_multi_lap_overlay(file_path, column, lap_windows, title, y_label, y_scale)
+
+
+def plot_track_map(
+    stat_file_path: str,
+    color_column: str | None = None,
+    color_label: str = "",
+    t_start: float | None = None,
+    t_end: float | None = None,
+) -> dict:
+    """
+    Generate a track map from GPS lat/lon in the stat file.
+
+    Optionally colour the path by a signal value (e.g. speed heatmap on track).
+    The stat file must have lat and lon columns (added during upload processing).
+
+    If color_column returns {"error": "..."}, check available columns and retry
+    or omit color_column to get a plain track outline.
+
+    Args:
+        stat_file_path: Path to the enriched *_stat.csv file.
+        color_column:   Optional column in the stat file to use as colour scale.
+                        None = plain line.
+        color_label:    Label for the colour scale bar.
+        t_start:        Optional time filter.
+        t_end:          Optional time filter.
+
+    Returns:
+        Plotly figure dict {"data": [...], "layout": {...}} or {"error": "..."}.
+    """
+    return make_track_map(stat_file_path, color_column, color_label, t_start, t_end)
+
+
+def plot_gg_diagram(
+    imu_file_path: str,
+    lat_accel_col: str = "linear_acceleration_y",
+    lon_accel_col: str = "linear_acceleration_x",
+    t_start: float | None = None,
+    t_end: float | None = None,
+) -> dict:
+    """
+    Generate a GG diagram (lateral vs longitudinal acceleration scatter plot).
+
+    Acceleration values are automatically converted from m/s² to g.
+
+    If a column name is wrong, the tool returns {"error": "..."} with the
+    available columns — retry with the correct names.
+
+    Args:
+        imu_file_path:  Path to the IMU CSV file.
+        lat_accel_col:  Column for lateral acceleration in m/s².
+                        Default: "linear_acceleration_y".
+        lon_accel_col:  Column for longitudinal acceleration in m/s².
+                        Default: "linear_acceleration_x".
+        t_start:        Optional time filter.
+        t_end:          Optional time filter.
+
+    Returns:
+        Plotly figure dict {"data": [...], "layout": {...}} or {"error": "..."}.
+    """
+    return make_gg_diagram(imu_file_path, lat_accel_col, lon_accel_col, t_start, t_end)
+
+
 # ---------------------------------------------------------------------------
 # Agent definition
 # ---------------------------------------------------------------------------
@@ -200,7 +260,7 @@ root_agent = Agent(
     description=(
         "Generates Plotly visualisations for any race telemetry plot request. "
         "Handles time series, track maps, GG diagrams, lap comparisons, "
-        "segment breakdowns, and any custom chart the user asks for."
+        "and segment breakdowns."
     ),
     instruction="""
 You are a race data visualisation engineer. Your job is to create Plotly charts
@@ -211,63 +271,62 @@ that help engineers and drivers understand telemetry data.
 1. **Understand what to visualise.**
    Identify: which signals, over what time range, grouped/coloured by what.
 
-2. **Load the data.**
-   - Call describe_uploaded_files if unsure which file contains the needed columns.
-   - Call get_data_for_plot for single-topic data.
-   - Call get_cross_topic_data for signals from multiple topics.
-   - Call resolve_lap_window first if the request is scoped to a lap.
+2. **Discover files if needed.**
+   Call describe_uploaded_files if unsure which file contains the needed columns.
+   It returns all column names grouped by topic.
 
-3. **Write and execute Python + Plotly code.**
-   Use the code executor to generate the figure. Always use plotly.graph_objects
-   or plotly.express. Return the figure as a JSON dict using fig.to_dict().
+3. **Resolve scope.**
+   - Lap-scoped request → call resolve_lap_window first to get t_start/t_end.
+   - Zone-scoped overlay → call get_zone_windows_for_plot to get per-lap windows.
 
-4. **Return a report dict** with title, text summary, and the plot(s).
+4. **Call the right plot tool.**
+   Each tool returns a complete Plotly figure dict — you never have to output raw
+   data arrays yourself.
 
-## Plot guidelines
-- Use a dark theme: `template="plotly_dark"`
-- For track maps: scatter plot with lat on y-axis, lon on x-axis, `mode="lines+markers"`
-- For heatmaps on track: colour scatter points by signal value using a colorscale
-- For lap comparisons: one trace per lap, different colours, shared x-axis
-- For segment breakdowns: use box plots or bar charts grouped by segment/zone
-- For GG diagrams: scatter of lateral_accel (x) vs longitudinal_accel (y), normalise to g
-- Always label axes clearly with units
-- Add a descriptive title to every chart
+   | Request type                              | Tool                        |
+   |-------------------------------------------|-----------------------------|
+   | Any signal over time                      | plot_time_series            |
+   | Same signal compared across laps/zones    | plot_time_series_overlay    |
+   | Track path (plain or coloured by signal)  | plot_track_map              |
+   | GG / acceleration diagram                 | plot_gg_diagram             |
+
+5. **Handle errors by retrying.**
+   If a tool returns `{"error": "..."}`, read the available columns listed in the
+   error and retry immediately with the correct column name. Never give up on the
+   first error.
+
+6. **Build the report.**
+   Return the figure dict verbatim from the tool result — do NOT modify it.
+   Add a brief text section with key insights (peak values, trends, comparisons).
 
 ## Common topic-to-column mappings
-- Speed → ControlStatus: actual_velocity_mps (convert × 2.23694 for mph)
+- Speed → ControlStatus: actual_velocity_mps (y_scale=2.23694 for mph)
 - Steering → ControlStatus: actual_steering_degree
-- Brake pressure → brake_pressure_report: brake_pressure_fdbk_front/rear
+- Brake pressure → brake_pressure_report: brake_pressure_fdbk_front, brake_pressure_fdbk_rear
 - Wheel speed → wheel_speed: wheel_speed_fl/fr/rl/rr
-- Acceleration → Imu: linear_acceleration_x/y/z (divide by 9.80665 for g)
-- GPS position → gps_top: latitude, longitude
+- Acceleration → Imu: linear_acceleration_x/y/z (y_scale=1/9.80665 for g)
+- GPS position → stat file: lat, lon
 - Tire temp → tire_temp_fl/fr/rl/rr: per-corner columns
 - Suspension → potentiometer: wheel_potentiometer_fl/fr/rl/rr
-- Segment/zone → stat file: zone column (assigned during upload processing)
-
-## Code execution format
-Write Python code in a code block. The code must:
-- Import pandas, plotly.graph_objects as go (or plotly.express as px)
-- Build the figure using data from the tool results above
-- End with: `print(fig.to_dict())`
+- Zone / segment → stat file: zone column
 
 ## Output format
-After executing the code, return a report dict:
 {
   "title": "...",
   "sections": [
     {"type": "text", "content": "...brief insight..."},
-    {"type": "plot", "figure": {...plotly dict...}, "caption": "..."}
+    {"type": "plot", "figure": <figure dict from tool>, "caption": "..."}
   ]
 }
 """,
-    code_executor=BuiltInCodeExecutor(),
     tools=[
         describe_uploaded_files,
-        get_data_for_plot,
-        get_cross_topic_data,
-        get_stats_for_plot,
-        get_zone_windows_for_plot,
-        get_zone_stats_for_plot,
         resolve_lap_window,
+        get_zone_windows_for_plot,
+        get_stats_for_annotation,
+        plot_time_series,
+        plot_time_series_overlay,
+        plot_track_map,
+        plot_gg_diagram,
     ],
 )
