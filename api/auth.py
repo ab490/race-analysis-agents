@@ -15,7 +15,7 @@ from fastapi import Header, HTTPException, status
 async def require_api_key(x_api_key: str = Header(default="")) -> None:
     expected = os.getenv("API_KEY", "")
     if not expected:
-        return  # Auth disabled — no API_KEY configured
+        return  # Auth disabled - no API_KEY configured
     if x_api_key != expected:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

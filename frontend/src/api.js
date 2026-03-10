@@ -94,9 +94,9 @@ export async function getSessionInfo(sessionId) {
 
 /**
  * Stream a question via SSE. Returns a cancel function.
- * onStatus(text) — called for each tool-call status update
- * onDone(report) — called with the final report dict
- * onError(text)  — called on error
+ * onStatus(text) - called for each tool-call status update
+ * onDone(report) - called with the final report dict
+ * onError(text)  - called on error
  */
 export function streamQuestion(sessionId, message, { onStatus, onDone, onError }) {
   const controller = new AbortController()

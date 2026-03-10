@@ -102,7 +102,7 @@ def test_process_stat_file_missing_columns():
 # ---------------------------------------------------------------------------
 
 def test_detect_laps_no_crossings():
-    """Car never comes near S/F — entire session treated as lap 1."""
+    """Car never comes near S/F - entire session treated as lap 1."""
     start_finish = (36.0, -121.0)
     df = _make_stat_df(
         lats=[36.5, 36.6, 36.7, 36.8],
@@ -143,7 +143,7 @@ def test_detect_laps_three_complete_laps():
 
 def test_detect_laps_outlap():
     """
-    Car starts slightly offset from S/F but approaches within 500 m —
+    Car starts slightly offset from S/F but approaches within 500 m -
     rows before the first S/F crossing become lap 0 (outlap).
     """
     start_finish = (36.0, -121.0)
@@ -174,7 +174,7 @@ def test_detect_laps_outlap():
         })
         cum += 100.0
 
-    # Return to S/F — cum from lap start ≈ 6000 m > 3500 m → crossing
+    # Return to S/F - cum from lap start ≈ 6000 m > 3500 m → crossing
     rows.append({"stamp_seconds": 65.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
 
     df = pd.DataFrame(rows)

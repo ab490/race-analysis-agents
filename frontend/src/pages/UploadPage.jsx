@@ -93,7 +93,7 @@ export default function UploadPage({ onSessionReady }) {
                 required
                 className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
               >
-                <option value="">— select a track —</option>
+                <option value="">- select a track -</option>
                 {availableTracks.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}

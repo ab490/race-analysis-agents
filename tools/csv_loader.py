@@ -104,7 +104,7 @@ def _parse_filename(filename: str) -> tuple[str, str]:
     """
     Extract (session_id, topic) from a rosbag2 CSV filename.
 
-    All files — including the stat file — are expected to have the session
+    All files - including the stat file - are expected to have the session
     prefix (e.g. rosbag2_YYYY_MM_DD-HH_MM_SS_stat.csv). The stat file is
     identified by the topic name 'stat' and returned as '_stat'.
 
@@ -317,7 +317,7 @@ def get_schema(file_paths: list[str]) -> dict[str, dict]:
         try:
             df = _load_raw(path)
         except KeyError:
-            print(f"Warning: skipping '{path.name}' — no timestamp column found.")
+            print(f"Warning: skipping '{path.name}' - no timestamp column found.")
             continue
         if topic != _STAT_TOPIC:
             df = df.drop(columns=[c for c in COORD_COLS if c in df.columns], errors="ignore")        

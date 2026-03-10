@@ -77,7 +77,7 @@ export default function ChatPage({ sessionId, onSessionChange }) {
           }}
             className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
           >
-            <option value="">— select a session —</option>
+            <option value="">- select a session -</option>
             {sessions.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}

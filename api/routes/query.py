@@ -136,12 +136,12 @@ async def _prepare_context(
 
     context = (
         f"Session ID: {session_id}\n"
-        f"Stat file path (enriched — has lat, lon, zone, lap columns): {stat_file_path}\n"
+        f"Stat file path (enriched - has lat, lon, zone, lap columns): {stat_file_path}\n"
         f"Available topics and columns:\n{json.dumps(columns_by_topic, indent=2)}\n"
         f"Lap boundaries: {lap_boundaries}\n"
         f"Duration: {duration}s\n\n"
         f"IMPORTANT: To get the file path for any topic other than the stat file, "
-        f"call get_topic_file(topic_name) — it downloads the file and returns its local path.\n"
+        f"call get_topic_file(topic_name) - it downloads the file and returns its local path.\n"
         f"Use your tools directly to answer the question. Do NOT mention routing or sub-agents.\n\n"
         f"User question: {message}"
     )
@@ -180,12 +180,12 @@ def _make_runner(agent) -> tuple[Runner, InMemorySessionService]:
 @router.post("/stream")
 async def stream_ask(request: QueryRequest):
     """
-    Streaming query — returns Server-Sent Events.
+    Streaming query - returns Server-Sent Events.
 
     Event types:
-      {"type": "status", "text": "..."}   — tool call in progress
-      {"type": "done",   "report": {...}} — final report dict
-      {"type": "error",  "text": "..."}   — error occurred
+      {"type": "status", "text": "..."}   - tool call in progress
+      {"type": "done",   "report": {...}} - final report dict
+      {"type": "error",  "text": "..."}   - error occurred
     """
     if not session_exists(request.session_id):
         raise HTTPException(
@@ -219,7 +219,7 @@ async def stream_ask(request: QueryRequest):
                             label = _tool_label(part.function_call.name)
                             yield f"data: {json.dumps({'type': 'status', 'text': label})}\n\n"
                         elif hasattr(part, "function_response") and part.function_response:
-                            # Intercept plot tool results directly — don't rely on the LLM
+                            # Intercept plot tool results directly - don't rely on the LLM
                             # to embed the large figure dict in its text response.
                             fn = part.function_response
                             if fn.name in _PLOT_TOOLS:

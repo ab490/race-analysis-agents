@@ -3,7 +3,7 @@ Plot generator: server-side Plotly figure construction.
 
 These functions load data from CSV files and return ready-to-use Plotly figure
 dicts (matching the output of fig.to_dict()). The plot_agent calls these as
-tools so the LLM never has to output raw data arrays — it only specifies
+tools so the LLM never has to output raw data arrays - it only specifies
 what to plot and the tool returns the complete figure.
 
 All functions cap data at max_points (default 150) to keep response size

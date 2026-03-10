@@ -1,5 +1,5 @@
 """
-QA Agent — answers natural language questions about race telemetry data.
+QA Agent - answers natural language questions about race telemetry data.
 
 Responsibilities:
 - Accept any natural language question about a session
@@ -103,7 +103,7 @@ def align_topics(topic_names: list[str]) -> dict:
     Download the requested topic CSVs, align them by timestamp, and return the
     path to a single merged CSV containing all their columns.
 
-    Always call this FIRST — before any stats, event, or plot tool — passing
+    Always call this FIRST - before any stats, event, or plot tool - passing
     every topic you need to answer the question. The stat file (_stat) is always
     included automatically; do not list it in topic_names.
 
@@ -125,7 +125,7 @@ def align_topics(topic_names: list[str]) -> dict:
 
     topic_dfs = {}
 
-    # Stat file is always included — already downloaded to temp_dir at query start
+    # Stat file is always included - already downloaded to temp_dir at query start
     stat_files = list(Path(temp_dir).glob("*_stat.csv"))
     if stat_files:
         stat_path = str(stat_files[0])
@@ -367,7 +367,7 @@ def resolve_lap_window(lap_boundaries: list[dict], lap_number: int) -> dict:
         lap_number:     The lap number to resolve (1-indexed).
 
     Returns:
-        Dict with lap, t_start, t_end — or an error key if lap not found.
+        Dict with lap, t_start, t_end - or an error key if lap not found.
     """
     for b in lap_boundaries:
         if b["lap"] == lap_number:
@@ -621,7 +621,7 @@ def detect_anomalies(
             "column": column,
             "mean": mean,
             "std": 0,
-            "note": "Zero variance — signal is constant, no anomalies.",
+            "note": "Zero variance - signal is constant, no anomalies.",
             "total_anomaly_count": 0,
         }
 
@@ -645,7 +645,7 @@ def detect_anomalies(
 
 
 # ---------------------------------------------------------------------------
-# Plot tools — generate Plotly figures to include alongside analysis
+# Plot tools - generate Plotly figures to include alongside analysis
 # ---------------------------------------------------------------------------
 
 def plot_time_series(
@@ -661,7 +661,7 @@ def plot_time_series(
     Generate a time-series chart for one or more columns.
 
     Use this whenever the user asks for a chart, plot, or graph alongside
-    an analysis — or any "show me X over time" request.
+    an analysis - or any "show me X over time" request.
 
     Args:
         file_path: Path to the topic CSV.
@@ -817,30 +817,30 @@ root_agent = Agent(
     ),
     instruction="""
 You are a race engineer analyst answering questions about telemetry data from an
-autonomous racing car. Data comes from ROS2 rosbag2 CSV exports — one file per topic.
-Users can ask anything — your job is to figure out how to answer it using the tools.
+autonomous racing car. Data comes from ROS2 rosbag2 CSV exports - one file per topic.
+Users can ask anything - your job is to figure out how to answer it using the tools.
 
 ## Step-by-step approach for any question
 
-1. **Call align_topics first — always.**
+1. **Call align_topics first - always.**
    Look at "Available topics and columns" in your context and identify every topic
    that contains a column relevant to the question. Call align_topics with all of
    them in one go. This downloads the files and merges them into a single aligned
    CSV. Use the returned `aligned_path` for every tool call after this step.
-   The stat file is always included automatically — do not list it.
+   The stat file is always included automatically - do not list it.
 
    If the exact column doesn't exist, look for alternatives:
    - Speed may be stored as actual_velocity_mps, hor_speed, vel_magnitude, or
-     as components (velocity_x/y/z) — use compute_resultant for components
-   - Acceleration may be linear_acceleration_x/y/z — use compute_resultant for magnitude
-   - Angular rate may be angular_velocity_x/y/z — use compute_resultant for magnitude
+     as components (velocity_x/y/z) - use compute_resultant for components
+   - Acceleration may be linear_acceleration_x/y/z - use compute_resultant for magnitude
+   - Angular rate may be angular_velocity_x/y/z - use compute_resultant for magnitude
    - Always pick the most relevant available column rather than giving up
 
 2. **Resolve lap window if needed.**
    If the user says "in lap 3" or "during lap 2", call resolve_lap_window to get
    t_start and t_end, then pass those to every subsequent tool call.
 
-3. **Call the right query tool — all using aligned_path.**
+3. **Call the right query tool - all using aligned_path.**
    - Single stat (max/min/mean/range) → stats_for_column(aligned_path, column)
    - Metric stored as x/y/z components → compute_resultant(aligned_path, [cols])
    - Stat scoped to a track zone → stats_for_zone(aligned_path, aligned_path, zone)
@@ -853,16 +853,16 @@ Users can ask anything — your job is to figure out how to answer it using the 
    - Spikes / anomalies → detect_anomalies(aligned_path, column)
 
 4. **Add a plot whenever it adds value.**
-   Use plot tools proactively — any time a visual makes the answer richer.
+   Use plot tools proactively - any time a visual makes the answer richer.
    All plots take aligned_path as the file argument.
    - Signal over time → plot_time_series(aligned_path, columns)
    - Lap comparison → plot_lap_overlay(aligned_path, column, lap_windows)
    - Track map / heatmap → plot_track_map(aligned_path)
    - GG diagram → plot_gg_diagram(aligned_path, lat_col, lon_col)
    - X vs Y (e.g. speed vs distance) → plot_xy(aligned_path, x_col, aligned_path, y_col)
-   Include the figure dict verbatim — do NOT modify it.
+   Include the figure dict verbatim - do NOT modify it.
 
-5. **Handle tool errors by retrying — never give up on the first error.**
+5. **Handle tool errors by retrying - never give up on the first error.**
    If a tool returns `{"error": "..."}`, read the available column names it returns,
    pick the closest match, and retry. Only report a column as unavailable if there
    is truly no relevant alternative.
@@ -872,7 +872,7 @@ Users can ask anything — your job is to figure out how to answer it using the 
    - Round numbers to 2 decimal places
    - If no relevant column exists at all, tell the user what IS available
 
-## Common topic-to-column mappings (hints only — always verify against actual context)
+## Common topic-to-column mappings (hints only - always verify against actual context)
 | What user asks about | Topic | Key columns |
 |---|---|---|
 | Speed / velocity | ControlStatus | actual_velocity_mps, target_velocity_mps |
@@ -889,7 +889,7 @@ Users can ask anything — your job is to figure out how to answer it using the 
 | Cross track / heading error | ControlStatus | cross_track_error, heading_error |
 | MPC state | ControlStatus | mpc_failed, mpc_steering_cmd |
 
-## Output format — MANDATORY
+## Output format - MANDATORY
 
 Your ENTIRE response must be a single valid JSON object. Do NOT output any prose,
 markdown, or explanation text before or after the JSON.
@@ -903,17 +903,17 @@ Section types:
 - Plot section: "type" is "plot", "figure" is the plotly dict returned by the plot tool (copied verbatim), "caption" is a short string
 
 Rules:
-- Output ONLY the JSON object — nothing before it, nothing after it
+- Output ONLY the JSON object - nothing before it, nothing after it
 - When you call a plot tool, copy its entire return value verbatim as the "figure"
-  field of a plot section. Never describe a plot in prose — always include the figure.
+  field of a plot section. Never describe a plot in prose - always include the figure.
 - Text sections support markdown (bold, bullet lists, tables)
 - For text-only answers a single text section is fine
 - For answers with plots, put text section first, then plot section(s)
 
 ## What you must not do
 - Do not load all uploaded files to answer a simple question
-- Do not make up values — if data is missing, say so clearly
-- Do not perform lap detection — use resolve_lap_window with provided boundaries
+- Do not make up values - if data is missing, say so clearly
+- Do not perform lap detection - use resolve_lap_window with provided boundaries
 """,
     tools=[
         align_topics,

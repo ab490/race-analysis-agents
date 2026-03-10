@@ -155,7 +155,7 @@ def test_load_two_sessions():
     """Files from two different sessions should produce two separate DataFrames."""
     # Simulate a second session by using a copy with a different name pattern
     # Since we only have one real session, test the grouping logic with same files
-    # labelled as two topics of one session — real two-session test requires two bags.
+    # labelled as two topics of one session - real two-session test requires two bags.
     files = [str(p) for p in ALL_CSVS[:3]]
     result = load_session(files)
     # All files are from the same session

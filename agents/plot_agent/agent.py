@@ -1,9 +1,9 @@
 """
-Plot Agent — generates Plotly visualisations for any user request.
+Plot Agent - generates Plotly visualisations for any user request.
 
 The agent calls server-side plot generation tools that return complete Plotly
 figure dicts. The LLM only specifies what to plot (file path, columns, time
-range, title) — it never has to output raw data arrays.
+range, title) - it never has to output raw data arrays.
 
 Supported chart types:
   - Time series (any signal over time)
@@ -42,7 +42,7 @@ def resolve_lap_window(lap_boundaries: list[dict], lap_number: int) -> dict:
         lap_number:     The lap number to resolve.
 
     Returns:
-        Dict with lap, t_start, t_end — or error if lap not found.
+        Dict with lap, t_start, t_end - or error if lap not found.
     """
     for b in lap_boundaries:
         if b["lap"] == lap_number:
@@ -55,7 +55,7 @@ def get_zone_windows_for_plot(stat_file_path: str, zone_name: str) -> dict:
     """
     Get the time windows for a named track zone.
 
-    Returns a list of {t_start, t_end, lap} dicts — pass the full list as
+    Returns a list of {t_start, t_end, lap} dicts - pass the full list as
     lap_windows to plot_time_series_overlay to get a per-lap overlay chart.
 
     Args:
@@ -76,7 +76,7 @@ def get_stats_for_annotation(
     t_end: float | None = None,
 ) -> dict:
     """
-    Get descriptive statistics for a column — use to annotate plot captions
+    Get descriptive statistics for a column - use to annotate plot captions
     with min/max/mean values.
 
     Args:
@@ -95,7 +95,7 @@ def get_stats_for_annotation(
 
 
 # ---------------------------------------------------------------------------
-# Plot generation tools — each returns a complete Plotly figure dict
+# Plot generation tools - each returns a complete Plotly figure dict
 # ---------------------------------------------------------------------------
 
 def plot_time_series(
@@ -111,7 +111,7 @@ def plot_time_series(
     Generate a time-series chart for one or more columns from a single CSV file.
 
     Use for any "plot X over time" request. Returns a complete Plotly figure dict
-    — include it verbatim under "figure" in a plot section of your report.
+    - include it verbatim under "figure" in a plot section of your report.
 
     If the tool returns {"error": "..."}, read the available columns listed in
     the error and retry with the correct column name.
@@ -146,7 +146,7 @@ def plot_time_series_overlay(
     Use for lap comparison requests like "compare brake pressure in lap 1 vs lap 3"
     or "overlay speed across all laps in sector s1".
 
-    Pass lap_windows as a list of {lap, t_start, t_end} dicts — either from
+    Pass lap_windows as a list of {lap, t_start, t_end} dicts - either from
     resolve_lap_window (for specific laps) or get_zone_windows_for_plot (for all
     occurrences of a zone).
 
@@ -209,7 +209,7 @@ def plot_gg_diagram(
     Acceleration values are automatically converted from m/s² to g.
 
     If a column name is wrong, the tool returns {"error": "..."} with the
-    available columns — retry with the correct names.
+    available columns - retry with the correct names.
 
     Args:
         imu_file_path:  Path to the IMU CSV file.
@@ -259,7 +259,7 @@ that help engineers and drivers understand telemetry data.
    - Zone-scoped overlay → call get_zone_windows_for_plot to get per-lap windows.
 
 4. **Call the right plot tool.**
-   Each tool returns a complete Plotly figure dict — you never have to output raw
+   Each tool returns a complete Plotly figure dict - you never have to output raw
    data arrays yourself.
 
    | Request type                              | Tool                        |
@@ -275,7 +275,7 @@ that help engineers and drivers understand telemetry data.
    first error.
 
 6. **Build the report.**
-   Return the figure dict verbatim from the tool result — do NOT modify it.
+   Return the figure dict verbatim from the tool result - do NOT modify it.
    Add a brief text section with key insights (peak values, trends, comparisons).
 
 ## Common topic-to-column mappings

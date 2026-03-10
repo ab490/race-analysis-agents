@@ -10,9 +10,7 @@ POST /upload/session
   - Requires track_id to load segment definitions from GCS
   - Incremental: new files are merged with existing GCS raw files and re-aligned
   - If no stat file provided, reuses the enriched stat already in GCS
-  - Runs: save new files → collect all from GCS → process stat → align all → save to GCS
-
-
+  - Runs: save new files -> collect all from GCS -> process stat -> align all -> save to GCS
 """
 
 import json
@@ -148,9 +146,8 @@ async def upload_session(
     Upload rosbag2 topic CSVs and optionally a *_stat.csv for a session.
 
     Returns a Server-Sent Events stream with progress updates.
-    Events: {"type": "status", "text": "..."} | {"type": "done", "result": {...}} | {"type": "error", "text": "..."}
     """
-    # Validate and read all files before streaming starts (HTTPException still works here)
+    # Validate and read all files before streaming starts
     available_tracks = list_tracks()
     if track_id not in available_tracks:
         raise HTTPException(
@@ -206,7 +203,7 @@ async def upload_session(
                         new_stat_path = str(dest)
 
                 # ----------------------------------------------------------------
-                # Step 1b: Force wipe — delete all existing GCS data for the session
+                # Step 1b: Force wipe - delete all existing GCS data for the session
                 # ----------------------------------------------------------------
                 if force:
                     yield _sse("Wiping existing session data…")
@@ -244,7 +241,7 @@ async def upload_session(
                     enriched_stat_path = Path(tmpdir) / Path(new_stat_path).name
                     stat_df.to_csv(enriched_stat_path, index=False)
                     save_raw_file(session_id, Path(new_stat_path).name, enriched_stat_path.read_bytes())
-                    yield _sse(f"Stat processed — {len(lap_boundaries)} lap(s) detected.")
+                    yield _sse(f"Stat processed - {len(lap_boundaries)} lap(s) detected.")
                 else:
                     # Reuse existing enriched stat from GCS
                     if "_stat" not in all_topics:
@@ -283,7 +280,7 @@ async def upload_session(
                         local_path = download_raw_file(session_id, topic, target_dir=tmpdir)
                         file_paths.append(local_path)
                     except FileNotFoundError:
-                        pass  # topic listed but blob missing — skip gracefully
+                        pass  # topic listed but blob missing - skip gracefully
 
                 # ----------------------------------------------------------------
                 # Step 5: Align all topics and save to GCS

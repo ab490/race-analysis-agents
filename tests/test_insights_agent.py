@@ -23,7 +23,7 @@ WHEEL_CSV = str(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv")
 
 def test_summarise_lap_times_basic():
     boundaries = [
-        {"lap": 0, "t_start": 0.0,   "t_end": 50.0},   # outlap — excluded
+        {"lap": 0, "t_start": 0.0,   "t_end": 50.0},   # outlap - excluded
         {"lap": 1, "t_start": 50.0,  "t_end": 162.5},
         {"lap": 2, "t_start": 162.5, "t_end": 271.0},
         {"lap": 3, "t_start": 271.0, "t_end": 385.5},
@@ -53,7 +53,7 @@ def test_summarise_lap_times_delta_to_best_is_zero_for_fastest():
 def test_summarise_lap_times_identifies_fastest_correctly():
     boundaries = [
         {"lap": 1, "t_start": 0.0,   "t_end": 120.0},   # 120 s
-        {"lap": 2, "t_start": 120.0, "t_end": 230.0},    # 110 s — fastest
+        {"lap": 2, "t_start": 120.0, "t_end": 230.0},    # 110 s - fastest
         {"lap": 3, "t_start": 230.0, "t_end": 355.0},    # 125 s
     ]
     result = summarise_lap_times(boundaries)
@@ -159,7 +159,7 @@ def test_get_stint_trend_invalid_stat():
 # ---------------------------------------------------------------------------
 
 def test_detect_anomalies_constant_signal(tmp_path):
-    """A constant-value signal has zero variance — no anomalies."""
+    """A constant-value signal has zero variance - no anomalies."""
     df = pd.DataFrame({"stamp_seconds": [0.0, 1.0, 2.0], "value": [5.0, 5.0, 5.0]})
     p = tmp_path / "const.csv"
     df.to_csv(p, index=False)
