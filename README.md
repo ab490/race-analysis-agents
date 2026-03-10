@@ -227,7 +227,7 @@ race-analysis-agents/
 │
 ├── tools/                          # Shared library functions used by agents and routes
 │   ├── csv_loader.py               # CSV parsing, ROS2 timestamp normalisation, multi-topic alignment
-│   ├── lap_detector.py             # ENU → lat/lon conversion, cumulative distance, lap detection
+│   ├── lap_detector.py             # ENU -> lat/lon conversion, cumulative distance, lap detection
 │   ├── query_engine.py             # Stats, time series, threshold events, zone and cross-topic queries
 │   ├── plot_generator.py           # Server-side Plotly figure generation (5 chart types)
 │   └── gcs_store.py                # All GCS reads/writes - sessions, raw files, tracks
@@ -242,7 +242,7 @@ race-analysis-agents/
 │   │   └── components/
 │   │       ├── ReportView.jsx      # Renders report dict (markdown text + Plotly charts)
 │   │       └── PlotSection.jsx     # Wraps react-plotly.js, receives figure dict from API
-│   └── vite.config.js              # Dev proxy: /api/* → http://localhost:8000
+│   └── vite.config.js              # Dev proxy: /api/* -> http://localhost:8000
 │
 ├── tests/                          # Test suite (pytest)
 ├── data/                           # Sample CSVs for local development (gitignored)

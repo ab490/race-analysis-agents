@@ -160,7 +160,7 @@ def test_detect_laps_outlap():
         })
         cum += 60.0  # total: 240 m before first crossing
 
-    # Row 4: exactly at S/F, cum = 240 m < lap_distance_threshold (500 m) → outlap branch
+    # Row 4: exactly at S/F, cum = 240 m < lap_distance_threshold (500 m) -> outlap branch
     rows.append({"stamp_seconds": 4.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
     cum += 60.0
 
@@ -174,7 +174,7 @@ def test_detect_laps_outlap():
         })
         cum += 100.0
 
-    # Return to S/F - cum from lap start ≈ 6000 m > 3500 m → crossing
+    # Return to S/F - cum from lap start ≈ 6000 m > 3500 m -> crossing
     rows.append({"stamp_seconds": 65.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
 
     df = pd.DataFrame(rows)

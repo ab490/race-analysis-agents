@@ -2,11 +2,11 @@
 Query engine: reusable data query functions used by agents.
 
 All functions operate on single topic files or small aligned subsets.
-Agents select which files to load based on the question — never load all
+Agents select which files to load based on the question - never load all
 files at once.
 
 Lap-based queries require lap boundaries produced by lap_detector.detect_laps.
-Agents resolve "lap 3" → (t_start, t_end) via get_lap_time_windows and pass
+Agents resolve "lap 3" -> (t_start, t_end) via get_lap_time_windows and pass
 those time bounds into the query functions below.
 """
 
@@ -216,7 +216,7 @@ def get_zone_time_windows(
     Return the time windows when the car was in a named track zone/segment.
 
     The stat file has a 'zone' column assigned during upload. Zones are not
-    contiguous across the session — they repeat each lap. This function finds
+    contiguous across the session - they repeat each lap. This function finds
     every contiguous interval where zone == zone_name and returns them as
     a list of {t_start, t_end, lap} dicts that can be passed into other
     query functions.
@@ -241,7 +241,7 @@ def get_zone_time_windows(
 
     if "zone" not in df.columns:
         return {
-            "error": "stat file has no 'zone' column — was zone assignment run during upload?",
+            "error": "stat file has no 'zone' column - was zone assignment run during upload?",
             "available_columns": list(df.columns),
         }
 
@@ -287,7 +287,7 @@ def get_column_stats_for_zone(
     for questions like "max speed in sector 1", "average brake pressure in
     the hairpin across all laps".
 
-    Aggregates across ALL laps — returns both per-lap breakdown and
+    Aggregates across ALL laps - returns both per-lap breakdown and
     overall (pooled) statistics.
 
     Args:

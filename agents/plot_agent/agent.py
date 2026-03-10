@@ -123,8 +123,8 @@ def plot_time_series(
         y_label:   Y-axis label including units (e.g. "Speed (m/s)").
         t_start:   Optional start time filter (Unix float).
         t_end:     Optional end time filter (Unix float).
-        y_scale:   Multiply all y values by this factor (e.g. 2.23694 for m/s→mph,
-                   1/9.80665 to convert m/s² → g).
+        y_scale:   Multiply all y values by this factor (e.g. 2.23694 for m/s->mph,
+                   1/9.80665 to convert m/s² -> g).
 
     Returns:
         Plotly figure dict {"data": [...], "layout": {...}} or {"error": "..."}.
@@ -255,8 +255,8 @@ that help engineers and drivers understand telemetry data.
    explore columns in more detail.
 
 3. **Resolve scope.**
-   - Lap-scoped request → call resolve_lap_window first to get t_start/t_end.
-   - Zone-scoped overlay → call get_zone_windows_for_plot to get per-lap windows.
+   - Lap-scoped request -> call resolve_lap_window first to get t_start/t_end.
+   - Zone-scoped overlay -> call get_zone_windows_for_plot to get per-lap windows.
 
 4. **Call the right plot tool.**
    Each tool returns a complete Plotly figure dict - you never have to output raw
@@ -279,15 +279,15 @@ that help engineers and drivers understand telemetry data.
    Add a brief text section with key insights (peak values, trends, comparisons).
 
 ## Common topic-to-column mappings
-- Speed → ControlStatus: actual_velocity_mps (y_scale=2.23694 for mph)
-- Steering → ControlStatus: actual_steering_degree
-- Brake pressure → brake_pressure_report: brake_pressure_fdbk_front, brake_pressure_fdbk_rear
-- Wheel speed → wheel_speed: wheel_speed_fl/fr/rl/rr
-- Acceleration → Imu: linear_acceleration_x/y/z (y_scale=1/9.80665 for g)
-- GPS position → stat file: lat, lon
-- Tire temp → tire_temp_fl/fr/rl/rr: per-corner columns
-- Suspension → potentiometer: wheel_potentiometer_fl/fr/rl/rr
-- Zone / segment → stat file: zone column
+- Speed -> ControlStatus: actual_velocity_mps (y_scale=2.23694 for mph)
+- Steering -> ControlStatus: actual_steering_degree
+- Brake pressure -> brake_pressure_report: brake_pressure_fdbk_front, brake_pressure_fdbk_rear
+- Wheel speed -> wheel_speed: wheel_speed_fl/fr/rl/rr
+- Acceleration -> Imu: linear_acceleration_x/y/z (y_scale=1/9.80665 for g)
+- GPS position -> stat file: lat, lon
+- Tire temp -> tire_temp_fl/fr/rl/rr: per-corner columns
+- Suspension -> potentiometer: wheel_potentiometer_fl/fr/rl/rr
+- Zone / segment -> stat file: zone column
 
 ## Output format
 {

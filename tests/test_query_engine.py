@@ -99,7 +99,7 @@ def test_get_time_series_column_not_found():
 # ---------------------------------------------------------------------------
 
 def test_find_threshold_events_returns_all_above_min():
-    """Threshold = min value → every non-null row should match '>='."""
+    """Threshold = min value -> every non-null row should match '>='."""
     col = _first_numeric_col(WHEEL_CSV)
     df = _load_raw(Path(WHEEL_CSV))
     min_val = float(df[col].min())
@@ -112,7 +112,7 @@ def test_find_threshold_events_returns_all_above_min():
 
 
 def test_find_threshold_events_impossible_threshold():
-    """Threshold above max → no events."""
+    """Threshold above max -> no events."""
     col = _first_numeric_col(WHEEL_CSV)
     result = find_threshold_events(WHEEL_CSV, col, ">", 1e18)
 

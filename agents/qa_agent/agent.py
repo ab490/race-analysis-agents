@@ -226,7 +226,7 @@ def signal_over_time(
         t_end:     Optional end time as Unix float.
 
     Returns:
-        Dict with t (timestamps), data (column → values), total_rows, returned_rows.
+        Dict with t (timestamps), data (column -> values), total_rows, returned_rows.
         On error, returns {"error": "...", "available_columns": [...]} so the agent can retry.
     """
     try:
@@ -670,7 +670,7 @@ def plot_time_series(
         y_label:   Y-axis label with units (e.g. "Speed (m/s)").
         t_start:   Optional start time filter.
         t_end:     Optional end time filter.
-        y_scale:   Multiply y values by this factor (e.g. 2.23694 for m/s→mph).
+        y_scale:   Multiply y values by this factor (e.g. 2.23694 for m/s->mph).
 
     Returns:
         Plotly figure dict or {"error": "..."} with available columns.
@@ -841,25 +841,25 @@ Users can ask anything - your job is to figure out how to answer it using the to
    t_start and t_end, then pass those to every subsequent tool call.
 
 3. **Call the right query tool - all using aligned_path.**
-   - Single stat (max/min/mean/range) → stats_for_column(aligned_path, column)
-   - Metric stored as x/y/z components → compute_resultant(aligned_path, [cols])
-   - Stat scoped to a track zone → stats_for_zone(aligned_path, aligned_path, zone)
-   - "When did X happen?" / "how long was X above Y?" → events_above_threshold
-   - "Show me X over time" / trend questions → signal_over_time
-   - Unsure of zone names → list_zones(aligned_path)
-   - Lap time summary / fastest lap / delta to best → summarise_lap_times
-   - Per-lap metric trend → stint_trend(aligned_path, column, lap_boundaries)
-   - Sector / zone time breakdown → sector_times(aligned_path)
-   - Spikes / anomalies → detect_anomalies(aligned_path, column)
+   - Single stat (max/min/mean/range) -> stats_for_column(aligned_path, column)
+   - Metric stored as x/y/z components -> compute_resultant(aligned_path, [cols])
+   - Stat scoped to a track zone -> stats_for_zone(aligned_path, aligned_path, zone)
+   - "When did X happen?" / "how long was X above Y?" -> events_above_threshold
+   - "Show me X over time" / trend questions -> signal_over_time
+   - Unsure of zone names -> list_zones(aligned_path)
+   - Lap time summary / fastest lap / delta to best -> summarise_lap_times
+   - Per-lap metric trend -> stint_trend(aligned_path, column, lap_boundaries)
+   - Sector / zone time breakdown -> sector_times(aligned_path)
+   - Spikes / anomalies -> detect_anomalies(aligned_path, column)
 
 4. **Add a plot whenever it adds value.**
    Use plot tools proactively - any time a visual makes the answer richer.
    All plots take aligned_path as the file argument.
-   - Signal over time → plot_time_series(aligned_path, columns)
-   - Lap comparison → plot_lap_overlay(aligned_path, column, lap_windows)
-   - Track map / heatmap → plot_track_map(aligned_path)
-   - GG diagram → plot_gg_diagram(aligned_path, lat_col, lon_col)
-   - X vs Y (e.g. speed vs distance) → plot_xy(aligned_path, x_col, aligned_path, y_col)
+   - Signal over time -> plot_time_series(aligned_path, columns)
+   - Lap comparison -> plot_lap_overlay(aligned_path, column, lap_windows)
+   - Track map / heatmap -> plot_track_map(aligned_path)
+   - GG diagram -> plot_gg_diagram(aligned_path, lat_col, lon_col)
+   - X vs Y (e.g. speed vs distance) -> plot_xy(aligned_path, x_col, aligned_path, y_col)
    Include the figure dict verbatim - do NOT modify it.
 
 5. **Handle tool errors by retrying - never give up on the first error.**

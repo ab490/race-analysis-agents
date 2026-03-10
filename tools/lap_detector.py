@@ -280,7 +280,7 @@ def detect_laps(
 
 def get_lap_time_windows(boundaries: list[dict]) -> dict[int, tuple[float, float]]:
     """
-    Convert lap boundaries list to a dict for quick lap → (t_start, t_end) lookup.
+    Convert lap boundaries list to a dict for quick lap -> (t_start, t_end) lookup.
 
     Args:
         boundaries: Output of detect_laps (list of lap boundary dicts).
