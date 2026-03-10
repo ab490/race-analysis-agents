@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from agents.qa_agent.agent import _session_ctx, _tempdir_ctx
 from agents.qa_agent.agent import root_agent as qa_agent
 from agents.data_agent.agent import root_agent as data_agent
+from agents.plot_agent.agent import root_agent as plot_agent
 from agents.orchestrator.agent import root_agent as orchestrator_agent
 from tools.gcs_store import download_raw_file, load_session_meta, session_exists
 
@@ -148,10 +149,13 @@ async def _prepare_context(
     return context, stat_file_path
 
 
-_PLOT_TOOLS = {"plot_time_series", "plot_lap_overlay", "plot_track_map", "plot_gg_diagram", "plot_xy"}
+_PLOT_TOOLS = {"plot_time_series", "plot_time_series_overlay", "plot_lap_overlay", "plot_track_map", "plot_gg_diagram", "plot_xy"}
 
 _SCHEMA_KEYWORDS = {"what data", "what topics", "what columns", "what files", "available topics",
                     "available columns", "what is available", "what do i have", "data available"}
+
+_PLOT_KEYWORDS = {"plot", "chart", "graph", "visualise", "visualize", "show me", "diagram",
+                  "track map", "gg diagram", "heatmap", "overlay", "time series"}
 
 
 def _pick_agent(message: str):
@@ -159,6 +163,8 @@ def _pick_agent(message: str):
     lower = message.lower()
     if any(kw in lower for kw in _SCHEMA_KEYWORDS):
         return data_agent
+    if any(kw in lower for kw in _PLOT_KEYWORDS):
+        return plot_agent
     return qa_agent
 
 

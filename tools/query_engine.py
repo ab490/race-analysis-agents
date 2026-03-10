@@ -11,7 +11,6 @@ those time bounds into the query functions below.
 """
 
 from pathlib import Path
-
 import pandas as pd
 
 from tools.csv_loader import COORD_COLS, _align_session, _load_raw, _parse_filename
@@ -370,7 +369,7 @@ def query_cross_topic(
     max_points: int = 500,
 ) -> dict:
     """
-    Align 2–5 topic files and return specific columns together.
+    Align 2-5 topic files and return specific columns together.
 
     Use this for cross-topic questions like "what was the steering angle when
     speed was highest?", "compare brake pressure vs tire temperature over time".
@@ -380,7 +379,7 @@ def query_cross_topic(
     topic name (e.g. 'speed_wheel_speed').
 
     Args:
-        file_paths: List of 2–5 relevant rosbag2 CSV file paths.
+        file_paths: List of 2-5 relevant rosbag2 CSV file paths.
         columns:    Column names to return. Pass an empty list to return all columns.
                     Use available_columns from a prior call if unsure of exact names.
         t_start:    Optional start time filter (Unix float).
