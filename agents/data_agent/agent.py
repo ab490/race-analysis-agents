@@ -1,5 +1,5 @@
 """
-Data Agent - understands uploaded telemetry CSV structure.
+Data Agent: understands uploaded telemetry CSV structure.
 
 Responsibilities:
 - Accept a list of uploaded rosbag2 CSV file paths
@@ -9,7 +9,6 @@ Responsibilities:
 """
 
 import os
-
 from google.adk.agents import Agent
 
 from agents.qa_agent.agent import describe_uploaded_files, get_topic_file

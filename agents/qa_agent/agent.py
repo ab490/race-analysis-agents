@@ -1,5 +1,5 @@
 """
-QA Agent - answers natural language questions about race telemetry data.
+QA Agent: answers natural language questions about race telemetry data.
 
 Responsibilities:
 - Accept any natural language question about a session
@@ -13,7 +13,6 @@ Responsibilities:
 import contextvars as _cv
 import os
 from pathlib import Path
-
 from google.adk.agents import Agent
 
 from tools.csv_loader import COORD_COLS, _align_session, _load_raw, get_schema
@@ -277,7 +276,7 @@ def correlate_signals(
     t_end: float | None = None,
 ) -> dict:
     """
-    Align 2–5 topic files and return specific columns together for cross-topic analysis.
+    Align 2-5 topic files and return specific columns together for cross-topic analysis.
 
     Use this for questions like:
     - "What was the steering angle when speed was highest?"
@@ -289,7 +288,7 @@ def correlate_signals(
     If unsure which files to pass, call describe_uploaded_files first.
 
     Args:
-        file_paths: 2–5 relevant rosbag2 CSV file paths.
+        file_paths: 2-5 relevant rosbag2 CSV file paths.
         columns:    Column names to return. Pass [] for all columns. Use
                     available_columns from a prior call if unsure of exact names.
         t_start:    Optional start time filter.

@@ -1,7 +1,6 @@
 """Tests for the pure-Python tools in agents/insights_agent/agent.py."""
 
 from pathlib import Path
-
 import pandas as pd
 import pytest
 

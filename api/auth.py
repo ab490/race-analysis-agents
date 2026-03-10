@@ -8,7 +8,6 @@ Set API_KEY in the environment to enable auth. If not set, all requests are allo
 """
 
 import os
-
 from fastapi import Header, HTTPException, status
 
 

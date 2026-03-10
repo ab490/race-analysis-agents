@@ -247,8 +247,8 @@ def load_session(file_paths: list[str]) -> dict[str, pd.DataFrame]:
     """
     Load and align one or more rosbag2 CSV files into per-session DataFrames.
 
-    Files are grouped by session ID parsed from the filename. The highest-frequency
-    topic is used as the base timeline - all other topics snap to it via nearest-index
+    Files are grouped by session ID parsed from the filename. The stat file (_stat)
+    is always used as the base timeline - all other topics snap to it via nearest-index
     lookup. Unique column names are kept as-is; only columns that appear in multiple
     topics are suffixed with the topic name (e.g. 'speed_wheel_speed').
 

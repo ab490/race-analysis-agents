@@ -1,5 +1,5 @@
 """
-Orchestrator Agent - the entry point for all user interactions.
+Orchestrator Agent: the entry point for all user interactions.
 
 Receives every user message and decides how to respond:
 - Routes analytical questions to the qa_agent
@@ -12,7 +12,6 @@ specialised sub-agents and combines their outputs into a final report.
 """
 
 import os
-
 from google.adk.agents import Agent
 
 from agents.data_agent.agent import root_agent as data_agent

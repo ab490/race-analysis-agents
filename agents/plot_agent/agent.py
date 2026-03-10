@@ -1,5 +1,5 @@
 """
-Plot Agent - generates Plotly visualisations for any user request.
+Plot Agent: generates Plotly visualisations for any user request.
 
 The agent calls server-side plot generation tools that return complete Plotly
 figure dicts. The LLM only specifies what to plot (file path, columns, time
@@ -15,7 +15,6 @@ The agent returns a report dict: {title, sections: [{type: text|plot, ...}]}
 """
 
 import os
-
 from google.adk.agents import Agent
 
 from agents.qa_agent.agent import describe_uploaded_files, get_topic_file

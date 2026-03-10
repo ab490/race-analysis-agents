@@ -1,7 +1,6 @@
 """Tests for tools/lap_detector.py."""
 
 import math
-
 import pandas as pd
 import pytest
 

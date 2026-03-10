@@ -18,6 +18,22 @@ from tools.csv_loader import _load_raw
 
 _DARK = "plotly_dark"
 
+# Vertical spike line + unified tooltip shown when hovering over time-series charts
+_SPIKE_X = {
+    "showspikes": True,
+    "spikecolor": "rgba(180,180,180,0.45)",
+    "spikethickness": 1,
+    "spikemode": "across",
+    "spikesnap": "cursor",
+}
+
+_HOVER_LABEL = {
+    "bgcolor": "black",
+    "bordercolor": "rgba(180,180,180,0.45)",
+    "font": {"color": "white"},
+    "namelength": -1,
+}
+
 
 def _load_and_filter(file_path: str, t_start: float | None, t_end: float | None, max_points: int):
     """Load a raw CSV, apply time filter, and downsample."""
@@ -85,8 +101,10 @@ def make_time_series(
         "data": traces,
         "layout": {
             "title": {"text": title},
-            "xaxis": {"title": {"text": "Time (s)"}},
+            "xaxis": {"title": {"text": "Time (s)"}, **_SPIKE_X},
             "yaxis": {"title": {"text": y_label}},
+            "hovermode": "x unified",
+            "hoverlabel": _HOVER_LABEL,
             "template": _DARK,
         },
     }
@@ -144,8 +162,10 @@ def make_multi_lap_overlay(
         "data": traces,
         "layout": {
             "title": {"text": title},
-            "xaxis": {"title": {"text": "Lap time (s)"}},
+            "xaxis": {"title": {"text": "Lap time (s)"}, **_SPIKE_X},
             "yaxis": {"title": {"text": y_label}},
+            "hovermode": "x unified",
+            "hoverlabel": _HOVER_LABEL,
             "template": _DARK,
         },
     }

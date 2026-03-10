@@ -1,7 +1,6 @@
 """Tests for tools/csv_loader.py against real sample data in data/."""
 
 from pathlib import Path
-
 import pytest
 
 from tools.csv_loader import (
@@ -14,6 +13,7 @@ from tools.csv_loader import (
 DATA_DIR = Path(__file__).parent.parent / "data"
 ALL_CSVS = sorted(DATA_DIR.glob("*.csv"))
 SESSION_ID = "rosbag2_2025_07_02-10_33_18"
+STAT_CSV = str(DATA_DIR / f"{SESSION_ID}_stat.csv")
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +108,7 @@ def test_get_schema_all_files():
 def test_load_session_two_topics():
     """Two topics from the same session should produce one aligned DataFrame."""
     files = [
+        STAT_CSV,
         str(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv"),
         str(DATA_DIR / f"{SESSION_ID}_steering_report.csv"),
     ]
@@ -121,33 +122,33 @@ def test_load_session_two_topics():
     assert any("steering" in c for c in df.columns)
 
 
-def test_load_session_aligned_to_highest_freq():
-    """Result row count should match the highest-frequency (most rows) topic."""
+def test_load_session_aligned_to_stat_file():
+    """Result row count should match the stat file (always used as base timeline)."""
     from tools.csv_loader import _load_raw
-    wheel = _load_raw(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv")
-    potentiometer = _load_raw(DATA_DIR / f"{SESSION_ID}_potentiometer.csv")
+    stat = _load_raw(DATA_DIR / f"{SESSION_ID}_stat.csv")
 
     files = [
+        STAT_CSV,
         str(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv"),
         str(DATA_DIR / f"{SESSION_ID}_potentiometer.csv"),
     ]
     result = load_session(files)
     df = result[SESSION_ID]
 
-    # Base is the highest-frequency topic; result row count equals that topic's row count
-    max_rows = max(len(wheel), len(potentiometer))
-    assert len(df) == max_rows
+    # Base is always the stat file; result row count equals its row count
+    assert len(df) == len(stat)
 
 
 def test_load_session_no_invented_values():
     """Aligned values must all come from real measurements (no NaN from gaps)."""
     files = [
+        STAT_CSV,
         str(DATA_DIR / f"{SESSION_ID}_brake_pressure_report.csv"),
         str(DATA_DIR / f"{SESSION_ID}_potentiometer.csv"),
     ]
     result = load_session(files)
     df = result[SESSION_ID]
-    # merge_asof with direction='nearest' should not introduce NaNs for overlapping windows
+    # nearest-index lookup always picks a real row, so alignment never introduces NaN
     assert df.isnull().sum().sum() == 0
 
 
@@ -156,11 +157,23 @@ def test_load_two_sessions():
     # Simulate a second session by using a copy with a different name pattern
     # Since we only have one real session, test the grouping logic with same files
     # labelled as two topics of one session - real two-session test requires two bags.
-    files = [str(p) for p in ALL_CSVS[:3]]
+    # Always include the stat file so _align_session can find its required base.
+    non_stat = [p for p in ALL_CSVS if not p.name.endswith("_stat.csv")]
+    files = [STAT_CSV] + [str(p) for p in non_stat[:2]]
     result = load_session(files)
     # All files are from the same session
     assert len(result) == 1
     assert SESSION_ID in result
+
+
+def test_load_session_requires_stat_file():
+    """load_session raises ValueError when no stat file is provided."""
+    files = [
+        str(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv"),
+        str(DATA_DIR / f"{SESSION_ID}_steering_report.csv"),
+    ]
+    with pytest.raises(ValueError, match="_stat"):
+        load_session(files)
 
 
 def test_load_session_file_not_found():

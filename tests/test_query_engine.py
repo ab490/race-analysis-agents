@@ -1,7 +1,6 @@
 """Tests for tools/query_engine.py."""
 
 from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -17,6 +16,7 @@ from tools.query_engine import (
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SESSION_ID = "rosbag2_2025_07_02-10_33_18"
+STAT_CSV = str(DATA_DIR / f"{SESSION_ID}_stat.csv")
 WHEEL_CSV = str(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv")
 CONTROL_CSV = str(DATA_DIR / f"{SESSION_ID}_ControlStatus.csv")
 BRAKE_CSV = str(DATA_DIR / f"{SESSION_ID}_brake_pressure_report.csv")
@@ -223,7 +223,7 @@ def test_get_column_stats_for_zone_per_lap_breakdown(synthetic_stat_csv, synthet
 # ---------------------------------------------------------------------------
 
 def test_query_cross_topic_aligns_two_files():
-    result = query_cross_topic([WHEEL_CSV, BRAKE_CSV], columns=[])
+    result = query_cross_topic([STAT_CSV, WHEEL_CSV, BRAKE_CSV], columns=[])
     assert "stamp_seconds" in result
     assert "data" in result
     assert "available_columns" in result
