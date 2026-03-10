@@ -45,7 +45,7 @@ Two uploads are required before querying: **track setup** (once per track) and *
 
 #### Track Centerline - `*_track.kml`
 
-A KML file with the lat/lon trace of the full track centerline. Export from Google Earth, RaceLogic VBOX Tools, or any mapping tool that supports KML.
+A KML file exported from Google Earth with the lat/lon trace of the full track centerline.
 
 ```xml
 <coordinates>
@@ -68,7 +68,7 @@ s3,36.583196,-121.757016
 ```
 
 **Rules:**
-- Must contain a `start_finish` row - the GPS coordinate used only for lap detection
+- Must contain a `start_finish` row
 - Remaining rows are segments listed in lap order (`s1`, `s2`, `s3`, ...)
 - Each segment starts at its lat/lon and ends where the next begins; last wraps back to `s1`
 - Segment names become zone labels for queries (e.g. "max speed in s1", "brake pressure in s2")
@@ -82,13 +82,12 @@ s3,36.583196,-121.757016
 
 | Field | Type | Description |
 |---|---|---|
-| `files` | file[] | rosbag2 topic CSVs — include `*_stat.csv` on first upload or when re-processing laps/zones |
+| `files` | file[] | rosbag2 topic CSVs - include `*_stat.csv` on first upload or when re-processing laps/zones |
 | `track_id` | string | Must match a previously uploaded track |
 | `force` | bool | If `true`, wipe all existing GCS data for this session and reprocess from scratch. Requires a `*_stat.csv` in the upload. |
 
 **Incremental uploads are supported.** After the initial upload you can add new topic CSVs without re-uploading the stat file. The pipeline merges new files with existing ones in GCS, reuses the enriched stat, and re-aligns all topics.
 
-**Upload streams progress** via Server-Sent Events — the UI shows each processing step in real time.
 
 #### ROS2 Topic CSVs - `rosbag2_YYYY_MM_DD-HH_MM_SS_<topic>.csv`
 
@@ -105,11 +104,9 @@ Timestamp column (`stamp` or `time`) must be in ROS2 format:
 builtin_interfaces.msg.Time(sec=1751477599, nanosec=930823584)
 ```
 
-You don't need to upload every topic - only the ones relevant to your analysis.
-
 #### Stat File - `*_stat.csv`
 
-The vehicle position file in ENU (East-North-Up) coordinates. This is the **alignment master** - all other topic files snap to its timeline.
+The vehicle position file in ENU (East-North-Up) coordinates. This is the **alignment master** - all other topic files are time-align to it.
 
 ```csv
 stamp,position_x,position_y,position_z,...
@@ -132,7 +129,7 @@ The ENU origin is the start/finish coordinate from `*_segments.csv`. Upload exac
 2. Cumulative distance computed along the GPS trace
 3. Laps detected automatically by counting S/F crossings (min lap distance enforced to avoid noise)
 4. Each position row assigned to a named track segment via nearest-neighbour match against KML centerline
-5. All topic files time-aligned to the stat file — stat is always the base timeline (nearest-timestamp, no interpolation)
+5. All topic files time-aligned to the stat file - stat is always the base timeline (nearest-timestamp, no interpolation)
 6. Enriched stat file (with `lat`, `lon`, `zone`, `lap` columns) saved back to GCS
 7. Processed session stored - no re-upload needed for future queries
 
@@ -179,7 +176,7 @@ The final `done` event contains a report dict:
 - *"Which lap had the highest peak lateral acceleration?"*
 - *"Where is the car losing the most time?"*
 - *"Is there degradation in lap times? Which sector is slowest?"*
-- *"Compare cross-track error across laps — is the car drifting off line?"*
+- *"Compare cross-track error across laps - is the car drifting off line?"*
 
 **Visualisation** (routed to `plot_agent` when plot/chart/graph keywords detected):
 - *"Plot the GG diagram for the full session."*
@@ -198,7 +195,7 @@ Set `API_KEY` in the environment to require authentication. When set, every requ
 X-API-Key: <your key>
 ```
 
-Leave `API_KEY` unset (or empty) to disable auth - useful for local development.
+Leave `API_KEY` unset (or empty) to disable auth (useful for local development).
 
 The web UI has an API Key field in the top-right navbar that stores the key in `localStorage`.
 
@@ -224,14 +221,12 @@ The web UI has an API Key field in the top-right navbar that stores the key in `
 ```
 race-analysis-agents/
 ├── agents/                         # AI agent definitions (Google ADK)
-│   ├── orchestrator/               # Entry point - routes questions to sub-agents (currently bypassed)
 │   ├── data_agent/                 # Handles schema/data discovery questions ("what data do I have?")
 │   ├── qa_agent/                   # Main workhorse - stats, events, lap analysis, anomalies, plots (18 tools)
-│   ├── plot_agent/                 # Pure visualisation requests with no analysis (9 tools)
-│   └── insights_agent/             # Stub only - all tools merged into qa_agent
+│   └── plot_agent/                 # Pure visualization requests with no analysis (9 tools)
 │
 ├── api/                            # FastAPI application
-│   ├── main.py                     # App initialisation, CORS, router registration
+│   ├── main.py                     # App initialization, router registration
 │   ├── auth.py                     # X-API-Key authentication dependency
 │   └── routes/
 │       ├── upload.py               # POST /upload/session and /upload/track - full processing pipeline
@@ -260,17 +255,16 @@ race-analysis-agents/
 ├── tests/                          # Test suite (pytest)
 ├── data/                           # Sample CSVs for local development (gitignored)
 ├── main.py                         # Thin re-export of api.main:app for uvicorn
-├── pyproject.toml                  # Python project config and dependencies (uv)
-└── CLAUDE.md                       # AI assistant instructions and architecture reference
-```
+└── pyproject.toml                  # Python project config and dependencies (uv)    
+``` 
 
 ### Key design points
 
 - **`agents/`** - each agent is a folder with `agent.py` exposing `root_agent`. Tools are plain Python functions; ADK uses their docstrings to decide when to call them.
 - **`tools/`** - pure library layer. Agents never parse CSVs directly; all data access goes through these modules.
-- **`api/routes/query.py`** - routes questions by keyword: schema questions → `data_agent`, plot/chart/graph keywords → `plot_agent`, everything else → `qa_agent`. Intercepts Plotly figure dicts from the ADK event stream and injects them into the final report (prevents the LLM from having to embed large figure dicts in JSON).
+- **`api/routes/query.py`** - routes questions by keyword: schema questions -> `data_agent`, plot/chart/graph keywords -> `plot_agent`, everything else -> `qa_agent`. Intercepts Plotly figure dicts from the ADK event stream and injects them into the final report (prevents the LLM from having to embed large figure dicts in JSON).
 - **`agents/qa_agent/agent.py`** - uses ContextVars (`_session_ctx`, `_tempdir_ctx`) so `align_topics()` and `get_topic_file()` can lazily download topic CSVs from GCS on demand without passing session state through every tool call.
-- **Alignment** - the stat file is always the base timeline. All other topics snap to it via nearest-index lookup. No interpolation.
+- **Alignment** - the stat file is always the base timeline. All other topics align to it via nearest-index lookup. No interpolation.
 
 ---
 

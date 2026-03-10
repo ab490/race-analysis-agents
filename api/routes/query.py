@@ -1,5 +1,5 @@
 """
-Query routes: natural language questions answered by the orchestrator agent.
+Query routes: natural language questions streamed as SSE.
 
 POST /query/stream
   - Streaming: returns Server-Sent Events with status updates and the final report.
@@ -24,7 +24,6 @@ from agents.qa_agent.agent import _session_ctx, _tempdir_ctx
 from agents.qa_agent.agent import root_agent as qa_agent
 from agents.data_agent.agent import root_agent as data_agent
 from agents.plot_agent.agent import root_agent as plot_agent
-from agents.orchestrator.agent import root_agent as orchestrator_agent
 from tools.gcs_store import download_raw_file, load_session_meta, session_exists
 
 router = APIRouter()
@@ -120,7 +119,7 @@ async def _prepare_context(
 ) -> tuple[str, str | None]:
     """
     Load session metadata, download only the stat file, and build the context
-    string passed to the orchestrator. Returns (context, stat_file_path).
+    string passed to the agent. Returns (context, stat_file_path).
     Other topic files are downloaded on demand via get_topic_file().
     """
     lap_boundaries, schema = load_session_meta(session_id)
