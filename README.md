@@ -82,8 +82,13 @@ s3,36.583196,-121.757016
 
 | Field | Type | Description |
 |---|---|---|
-| `files` | file[] | All rosbag2 CSVs + one `*_stat.csv` |
+| `files` | file[] | rosbag2 topic CSVs — include `*_stat.csv` on first upload or when re-processing laps/zones |
 | `track_id` | string | Must match a previously uploaded track |
+| `force` | bool | If `true`, wipe all existing GCS data for this session and reprocess from scratch. Requires a `*_stat.csv` in the upload. |
+
+**Incremental uploads are supported.** After the initial upload you can add new topic CSVs without re-uploading the stat file. The pipeline merges new files with existing ones in GCS, reuses the enriched stat, and re-aligns all topics.
+
+**Upload streams progress** via Server-Sent Events — the UI shows each processing step in real time.
 
 #### ROS2 Topic CSVs - `rosbag2_YYYY_MM_DD-HH_MM_SS_<topic>.csv`
 
@@ -127,7 +132,7 @@ The ENU origin is the start/finish coordinate from `*_segments.csv`. Upload exac
 2. Cumulative distance computed along the GPS trace
 3. Laps detected automatically by counting S/F crossings (min lap distance enforced to avoid noise)
 4. Each position row assigned to a named track segment via nearest-neighbour match against KML centerline
-5. All topic files time-aligned to the stat file (nearest-timestamp, no interpolation)
+5. All topic files time-aligned to the stat file — stat is always the base timeline (nearest-timestamp, no interpolation)
 6. Enriched stat file (with `lat`, `lon`, `zone`, `lap` columns) saved back to GCS
 7. Processed session stored - no re-upload needed for future queries
 
@@ -164,16 +169,24 @@ The final `done` event contains a report dict:
 
 ### Example Questions
 
+**Data queries** (routed to `qa_agent`):
 - *"What was the maximum speed in lap 3?"*
-- *"When did the front-left tire temperature exceed 90°C?"*
+- *"When did brake pressure exceed 50 bar?"*
 - *"Average brake pressure in sector 2 across all laps?"*
-- *"Compare wheel speed vs vehicle speed in lap 2."*
-- *"Plot the GG diagram for the full session."*
-- *"Show me a speed heatmap on the track map."*
-- *"Was there any MPC failure during the session?"*
-- *"Which lap had the highest peak lateral acceleration?"*
 - *"How did lap times change across the stint?"*
 - *"Were there any anomalies in lateral G-force?"*
+- *"Was there any MPC failure during the session?"*
+- *"Which lap had the highest peak lateral acceleration?"*
+- *"Where is the car losing the most time?"*
+- *"Is there degradation in lap times? Which sector is slowest?"*
+- *"Compare cross-track error across laps — is the car drifting off line?"*
+
+**Visualisation** (routed to `plot_agent` when plot/chart/graph keywords detected):
+- *"Plot the GG diagram for the full session."*
+- *"Show me a speed heatmap on the track map."*
+- *"Chart front-left tire temperature over time."*
+- *"Overlay wheel speed across all laps."*
+- *"Compare wheel speed vs vehicle speed in lap 2."*
 
 ---
 
@@ -213,7 +226,7 @@ race-analysis-agents/
 ├── agents/                         # AI agent definitions (Google ADK)
 │   ├── orchestrator/               # Entry point - routes questions to sub-agents (currently bypassed)
 │   ├── data_agent/                 # Handles schema/data discovery questions ("what data do I have?")
-│   ├── qa_agent/                   # Main workhorse - stats, events, lap analysis, anomalies, plots (19 tools)
+│   ├── qa_agent/                   # Main workhorse - stats, events, lap analysis, anomalies, plots (18 tools)
 │   ├── plot_agent/                 # Pure visualisation requests with no analysis (9 tools)
 │   └── insights_agent/             # Stub only - all tools merged into qa_agent
 │
@@ -255,8 +268,9 @@ race-analysis-agents/
 
 - **`agents/`** - each agent is a folder with `agent.py` exposing `root_agent`. Tools are plain Python functions; ADK uses their docstrings to decide when to call them.
 - **`tools/`** - pure library layer. Agents never parse CSVs directly; all data access goes through these modules.
-- **`api/routes/query.py`** - intercepts Plotly figure dicts from the ADK event stream before the LLM can embed them in JSON, then injects them into the final report. This prevents oversized responses.
-- **`agents/qa_agent/agent.py`** - uses ContextVars (`_session_ctx`, `_tempdir_ctx`) so `get_topic_file()` can lazily download topic CSVs from GCS on demand without passing session state through every tool call.
+- **`api/routes/query.py`** - routes questions by keyword: schema questions → `data_agent`, plot/chart/graph keywords → `plot_agent`, everything else → `qa_agent`. Intercepts Plotly figure dicts from the ADK event stream and injects them into the final report (prevents the LLM from having to embed large figure dicts in JSON).
+- **`agents/qa_agent/agent.py`** - uses ContextVars (`_session_ctx`, `_tempdir_ctx`) so `align_topics()` and `get_topic_file()` can lazily download topic CSVs from GCS on demand without passing session state through every tool call.
+- **Alignment** - the stat file is always the base timeline. All other topics snap to it via nearest-index lookup. No interpolation.
 
 ---
 
