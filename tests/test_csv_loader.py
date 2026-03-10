@@ -50,9 +50,20 @@ def test_parse_filename_uppercase_topic():
     assert topic == "Imu"
 
 
+def test_parse_filename_stat_with_session_prefix():
+    session, topic = _parse_filename("rosbag2_2025_07_02-10_33_18_stat.csv")
+    assert session == "rosbag2_2025_07_02-10_33_18"
+    assert topic == "_stat"
+
+
 def test_parse_filename_invalid():
     with pytest.raises(ValueError):
         _parse_filename("some_random_file.csv")
+
+
+def test_parse_filename_stat_without_prefix_raises():
+    with pytest.raises(ValueError):
+        _parse_filename("vehicle_stat.csv")
 
 
 # ---------------------------------------------------------------------------
@@ -103,15 +114,15 @@ def test_load_session_two_topics():
     result = load_session(files)
     assert SESSION_ID in result
     df = result[SESSION_ID]
-    assert "t" in df.columns
-    assert df["t"].is_monotonic_increasing
+    assert "stamp_seconds" in df.columns
+    assert df["stamp_seconds"].is_monotonic_increasing
     # Both topics should have contributed columns
     assert any("wheel_speed" in c for c in df.columns)
     assert any("steering" in c for c in df.columns)
 
 
-def test_load_session_aligned_to_lowest_freq():
-    """Result row count should match the lowest-frequency (fewest rows) topic."""
+def test_load_session_aligned_to_highest_freq():
+    """Result row count should match the highest-frequency (most rows) topic."""
     from tools.csv_loader import _load_raw
     wheel = _load_raw(DATA_DIR / f"{SESSION_ID}_wheel_speed.csv")
     potentiometer = _load_raw(DATA_DIR / f"{SESSION_ID}_potentiometer.csv")
@@ -123,10 +134,9 @@ def test_load_session_aligned_to_lowest_freq():
     result = load_session(files)
     df = result[SESSION_ID]
 
-    # Master is whichever has fewer rows; result row count <= master rows
-    # (may be slightly less after time-window trimming)
-    min_rows = min(len(wheel), len(potentiometer))
-    assert len(df) <= min_rows
+    # Base is the highest-frequency topic; result row count equals that topic's row count
+    max_rows = max(len(wheel), len(potentiometer))
+    assert len(df) == max_rows
 
 
 def test_load_session_no_invented_values():

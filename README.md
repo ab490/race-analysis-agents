@@ -1,6 +1,6 @@
 # Race Analysis Agents
 
-A platform for autonomous race car telemetry analysis. Engineers and drivers upload CSV telemetry data exported from ROS2 rosbag2 recordings, then interact with AI agents via a web UI or REST API — asking questions in plain English to get stats, event detection, lap time summaries, and Plotly charts.
+A platform for autonomous race car telemetry analysis.
 
 ---
 
@@ -18,22 +18,22 @@ cd frontend && npm run dev               # UI at http://localhost:5173
 
 Required environment variables (`.env` in project root):
 ```
-GCP_PROJECT_ID=your-project
-GCP_REGION=us-central1
-VERTEX_AI_MODEL=gemini-2.0-flash-lite-001
-GCS_BUCKET_NAME=your-bucket
-API_KEY=                                 # optional — leave blank to disable auth
+GCP_PROJECT_ID=project-id
+GCP_REGION=project-region
+VERTEX_AI_MODEL=model-name
+GCS_BUCKET_NAME=bucket-name
+API_KEY=                                 # optional - leave blank to disable authentication
 ```
 
 ---
 
 ## Upload Requirements
 
-Two uploads are required before querying: **track setup** (once per track) and **session files** (once per recording).
+Two uploads are required before querying: **track setup** (once per track) and **session files** (once per session).
 
 ---
 
-### Step 1 — Upload Track (once per track)
+### Step 1 - Upload Track (once per track)
 
 `POST /upload/track`
 
@@ -203,6 +203,60 @@ The web UI has an API Key field in the top-right navbar that stores the key in `
 | `GET` | `/tracks/` | List all uploaded track IDs |
 | `GET` | `/tracks/{track_id}` | Get segment definitions for a track |
 | `GET` | `/health` | Health check |
+
+---
+
+## Repository Structure
+
+```
+race-analysis-agents/
+├── agents/                         # AI agent definitions (Google ADK)
+│   ├── orchestrator/               # Entry point — routes questions to sub-agents (currently bypassed)
+│   ├── data_agent/                 # Handles schema/data discovery questions ("what data do I have?")
+│   ├── qa_agent/                   # Main workhorse — stats, events, lap analysis, anomalies, plots (19 tools)
+│   ├── plot_agent/                 # Pure visualisation requests with no analysis (9 tools)
+│   └── insights_agent/             # Stub only — all tools merged into qa_agent
+│
+├── api/                            # FastAPI application
+│   ├── main.py                     # App initialisation, CORS, router registration
+│   ├── auth.py                     # X-API-Key authentication dependency
+│   └── routes/
+│       ├── upload.py               # POST /upload/session and /upload/track — full processing pipeline
+│       ├── query.py                # POST /query/stream — SSE streaming, agent routing, figure interception
+│       └── tracks.py               # GET /tracks/ — list and retrieve track metadata
+│
+├── tools/                          # Shared library functions used by agents and routes
+│   ├── csv_loader.py               # CSV parsing, ROS2 timestamp normalisation, multi-topic alignment
+│   ├── lap_detector.py             # ENU → lat/lon conversion, cumulative distance, lap detection
+│   ├── query_engine.py             # Stats, time series, threshold events, zone and cross-topic queries
+│   ├── plot_generator.py           # Server-side Plotly figure generation (5 chart types)
+│   └── gcs_store.py                # All GCS reads/writes — sessions, raw files, tracks
+│
+├── frontend/                       # React + Vite + Tailwind web UI
+│   ├── src/
+│   │   ├── App.jsx                 # Root component — navbar, API key input, page routing
+│   │   ├── api.js                  # Axios client and SSE streamQuestion() helper
+│   │   ├── pages/
+│   │   │   ├── ChatPage.jsx        # Session selector, chat history, report panel, PDF export
+│   │   │   └── UploadPage.jsx      # Track and session file upload forms
+│   │   └── components/
+│   │       ├── ReportView.jsx      # Renders report dict (markdown text + Plotly charts)
+│   │       └── PlotSection.jsx     # Wraps react-plotly.js, receives figure dict from API
+│   └── vite.config.js              # Dev proxy: /api/* → http://localhost:8000
+│
+├── tests/                          # Test suite (pytest)
+├── data/                           # Sample CSVs for local development (gitignored)
+├── main.py                         # Thin re-export of api.main:app for uvicorn
+├── pyproject.toml                  # Python project config and dependencies (uv)
+└── CLAUDE.md                       # AI assistant instructions and architecture reference
+```
+
+### Key design points
+
+- **`agents/`** — each agent is a folder with `agent.py` exposing `root_agent`. Tools are plain Python functions; ADK uses their docstrings to decide when to call them.
+- **`tools/`** — pure library layer. Agents never parse CSVs directly; all data access goes through these modules.
+- **`api/routes/query.py`** — intercepts Plotly figure dicts from the ADK event stream before the LLM can embed them in JSON, then injects them into the final report. This prevents oversized responses.
+- **`agents/qa_agent/agent.py`** — uses ContextVars (`_session_ctx`, `_tempdir_ctx`) so `get_topic_file()` can lazily download topic CSVs from GCS on demand without passing session state through every tool call.
 
 ---
 

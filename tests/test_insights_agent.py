@@ -90,10 +90,10 @@ def test_summarise_lap_times_empty():
 
 def test_get_stint_trend_returns_trend():
     df = _load_raw(Path(WHEEL_CSV))
-    t_min = float(df["t"].min())
-    t_max = float(df["t"].max())
+    t_min = float(df["stamp_seconds"].min())
+    t_max = float(df["stamp_seconds"].max())
     t_mid = (t_min + t_max) / 2.0
-    col = [c for c in df.columns if c != "t"][0]
+    col = [c for c in df.columns if c != "stamp_seconds"][0]
 
     boundaries = [
         {"lap": 1, "t_start": t_min, "t_end": t_mid},
@@ -112,9 +112,9 @@ def test_get_stint_trend_returns_trend():
 
 def test_get_stint_trend_stat_choices():
     df = _load_raw(Path(WHEEL_CSV))
-    t_min, t_max = float(df["t"].min()), float(df["t"].max())
+    t_min, t_max = float(df["stamp_seconds"].min()), float(df["stamp_seconds"].max())
     t_mid = (t_min + t_max) / 2.0
-    col = [c for c in df.columns if c != "t"][0]
+    col = [c for c in df.columns if c != "stamp_seconds"][0]
     boundaries = [
         {"lap": 1, "t_start": t_min, "t_end": t_mid},
         {"lap": 2, "t_start": t_mid, "t_end": t_max},
@@ -127,7 +127,7 @@ def test_get_stint_trend_stat_choices():
 
 def test_get_stint_trend_column_not_found():
     df = _load_raw(Path(WHEEL_CSV))
-    t_min, t_max = float(df["t"].min()), float(df["t"].max())
+    t_min, t_max = float(df["stamp_seconds"].min()), float(df["stamp_seconds"].max())
     boundaries = [{"lap": 1, "t_start": t_min, "t_end": t_max}]
 
     result = get_stint_trend(WHEEL_CSV, "nonexistent_col", boundaries)
@@ -137,8 +137,8 @@ def test_get_stint_trend_column_not_found():
 
 def test_get_stint_trend_no_racing_laps():
     df = _load_raw(Path(WHEEL_CSV))
-    t_min, t_max = float(df["t"].min()), float(df["t"].max())
-    col = [c for c in df.columns if c != "t"][0]
+    t_min, t_max = float(df["stamp_seconds"].min()), float(df["stamp_seconds"].max())
+    col = [c for c in df.columns if c != "stamp_seconds"][0]
     boundaries = [{"lap": 0, "t_start": t_min, "t_end": t_max}]
 
     result = get_stint_trend(WHEEL_CSV, col, boundaries)
@@ -147,7 +147,7 @@ def test_get_stint_trend_no_racing_laps():
 
 def test_get_stint_trend_invalid_stat():
     df = _load_raw(Path(WHEEL_CSV))
-    col = [c for c in df.columns if c != "t"][0]
+    col = [c for c in df.columns if c != "stamp_seconds"][0]
     boundaries = [{"lap": 1, "t_start": 0.0, "t_end": 1e15}]
 
     result = get_stint_trend(WHEEL_CSV, col, boundaries, stat="median")

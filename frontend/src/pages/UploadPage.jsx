@@ -16,6 +16,7 @@ export default function UploadPage({ onSessionReady }) {
   const [sessionStatus, setSessionStatus] = useState(null)
   const [sessionError, setSessionError] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(false)
+  const [statusText, setStatusText] = useState('')
 
   // Track upload state
   const [newTrackId, setNewTrackId] = useState('')
@@ -25,19 +26,25 @@ export default function UploadPage({ onSessionReady }) {
   const [trackError, setTrackError] = useState(null)
   const [trackLoading, setTrackLoading] = useState(false)
 
-  async function handleSessionUpload(e) {
+  function handleSessionUpload(e) {
     e.preventDefault()
     setSessionError(null)
     setSessionStatus(null)
+    setStatusText('Sending files to server…')
     setSessionLoading(true)
-    try {
-      const result = await uploadSession(trackId, sessionFiles, forceReprocess)
-      setSessionStatus(result)
-    } catch (err) {
-      setSessionError(err.response?.data?.detail || err.message)
-    } finally {
-      setSessionLoading(false)
-    }
+    uploadSession(trackId, sessionFiles, forceReprocess, {
+      onStatus: (text) => setStatusText(text),
+      onDone: (result) => {
+        setSessionStatus(result)
+        setSessionLoading(false)
+        setStatusText('')
+      },
+      onError: (text) => {
+        setSessionError(text)
+        setSessionLoading(false)
+        setStatusText('')
+      },
+    })
   }
 
   async function handleTrackUpload(e) {
@@ -135,6 +142,15 @@ export default function UploadPage({ onSessionReady }) {
           >
             {sessionLoading ? 'Uploading...' : 'Upload Session'}
           </button>
+
+          {sessionLoading && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs text-slate-400">{statusText}</p>
+              <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                <div className="h-full w-full bg-blue-500 rounded-full animate-pulse" />
+              </div>
+            </div>
+          )}
 
           {sessionError && (
             <div className="bg-red-900/40 border border-red-700 text-red-300 rounded px-4 py-3 text-sm">

@@ -1,5 +1,5 @@
 """
-Plot generator — server-side Plotly figure construction.
+Plot generator: server-side Plotly figure construction.
 
 These functions load data from CSV files and return ready-to-use Plotly figure
 dicts (matching the output of fig.to_dict()). The plot_agent calls these as
@@ -24,9 +24,9 @@ def _load_and_filter(file_path: str, t_start: float | None, t_end: float | None,
     """Load a raw CSV, apply time filter, and downsample."""
     df = _load_raw(Path(file_path))
     if t_start is not None:
-        df = df[df["t"] >= t_start]
+        df = df[df["stamp_seconds"] >= t_start]
     if t_end is not None:
-        df = df[df["t"] <= t_end]
+        df = df[df["stamp_seconds"] <= t_end]
     if len(df) > max_points:
         step = max(1, len(df) // max_points)
         df = df.iloc[::step].head(max_points)
@@ -65,11 +65,11 @@ def make_time_series(
 
     missing = [c for c in columns if c not in df.columns]
     if missing:
-        available = [c for c in df.columns if c != "t"]
+        available = [c for c in df.columns if c != "stamp_seconds"]
         return {"error": f"Columns not found: {missing}. Available: {available}"}
 
-    t0 = float(df["t"].iloc[0]) if len(df) else 0
-    t_rel = (df["t"] - t0).round(3).tolist()
+    t0 = float(df["stamp_seconds"].iloc[0]) if len(df) else 0
+    t_rel = (df["stamp_seconds"] - t0).round(3).tolist()
 
     traces = [
         {
@@ -121,21 +121,21 @@ def make_multi_lap_overlay(
     """
     df_full = _load_raw(Path(file_path))
     if column not in df_full.columns:
-        available = [c for c in df_full.columns if c != "t"]
+        available = [c for c in df_full.columns if c != "stamp_seconds"]
         return {"error": f"Column '{column}' not found. Available: {available}"}
 
     traces = []
     for w in lap_windows:
-        lap_df = df_full[(df_full["t"] >= w["t_start"]) & (df_full["t"] <= w["t_end"])]
+        lap_df = df_full[(df_full["stamp_seconds"] >= w["t_start"]) & (df_full["stamp_seconds"] <= w["t_end"])]
         if len(lap_df) > max_points:
             step = max(1, len(lap_df) // max_points)
             lap_df = lap_df.iloc[::step].head(max_points)
         if lap_df.empty:
             continue
-        t0 = float(lap_df["t"].iloc[0])
+        t0 = float(lap_df["stamp_seconds"].iloc[0])
         traces.append({
             "type": "scatter",
-            "x": (lap_df["t"] - t0).round(3).tolist(),
+            "x": (lap_df["stamp_seconds"] - t0).round(3).tolist(),
             "y": (lap_df[column] * y_scale).round(4).tolist(),
             "mode": "lines",
             "name": f"Lap {w['lap']}",
@@ -240,7 +240,7 @@ def make_gg_diagram(
 
     for col in (lat_accel_col, lon_accel_col):
         if col not in df.columns:
-            available = [c for c in df.columns if c != "t"]
+            available = [c for c in df.columns if c != "stamp_seconds"]
             return {"error": f"Column '{col}' not found. Available: {available}"}
 
     g = 9.80665
@@ -304,7 +304,7 @@ def make_xy_plot(
     """
     x_df = _load_and_filter(x_file_path, t_start, t_end, max_points)
     if x_column not in x_df.columns:
-        available = [c for c in x_df.columns if c != "t"]
+        available = [c for c in x_df.columns if c != "stamp_seconds"]
         return {"error": f"Column '{x_column}' not found in x file. Available: {available}"}
 
     if x_file_path == y_file_path:
@@ -312,12 +312,12 @@ def make_xy_plot(
     else:
         y_df = _load_and_filter(y_file_path, t_start, t_end, max_points * 4)
         if y_column not in y_df.columns:
-            available = [c for c in y_df.columns if c != "t"]
+            available = [c for c in y_df.columns if c != "stamp_seconds"]
             return {"error": f"Column '{y_column}' not found in y file. Available: {available}"}
         merged = pd.merge_asof(
-            x_df[["t", x_column]].sort_values("t"),
-            y_df[["t", y_column]].sort_values("t"),
-            on="t",
+            x_df[["stamp_seconds", x_column]].sort_values("stamp_seconds"),
+            y_df[["stamp_seconds", y_column]].sort_values("stamp_seconds"),
+            on="stamp_seconds",
             direction="nearest",
         )
         if len(merged) > max_points:

@@ -1,15 +1,15 @@
 """
-GCS Store — save and load session data to/from Google Cloud Storage.
+GCS Store: save and load session data to/from Google Cloud Storage.
 
 Storage layout in GCS:
   <bucket>/
     sessions/<session_id>/
-      raw/                  ← original uploaded CSV files (one per topic)
+      raw/                  <- original uploaded CSV files (one per topic)
         wheel_speed.csv
         ControlStatus.csv
         session_stat.csv
         ...
-      processed/            ← output of the upload pipeline
+      processed/            <- output of the upload pipeline
         aligned.parquet
         laps.json
         schema.json
@@ -17,8 +17,8 @@ Storage layout in GCS:
       centerline.kml
       segments.csv
 
-At query time agents download individual topic CSVs from raw/ to a local
-temp file and pass that path to query_engine functions — keeping query_engine
+At query time, agents download individual topic CSVs from raw/ to a local
+temp file and pass that path to query_engine functions, keeping query_engine
 independent of GCS.
 """
 
@@ -27,7 +27,6 @@ import json
 import os
 import tempfile
 from pathlib import Path
-
 import pandas as pd
 from google.cloud import storage
 
@@ -76,7 +75,7 @@ def load_session_meta(session_id: str) -> tuple[list[dict], dict]:
     """
     Load lap boundaries and schema for a session without downloading the parquet.
 
-    Use this at query time — the aligned parquet is not needed for agent queries.
+    Use this at query time, the aligned parquet is not needed for agent queries.
 
     Args:
         session_id: Unique session identifier.
@@ -143,6 +142,23 @@ def list_sessions() -> list[str]:
         if len(parts) >= 4 and parts[2] == "processed" and parts[3] == "aligned.csv":
             session_ids.add(parts[1])
     return sorted(session_ids)
+
+
+def delete_session(session_id: str) -> int:
+    """
+    Delete all GCS objects for a session (both raw/ and processed/).
+
+    Args:
+        session_id: Session identifier to delete.
+
+    Returns:
+        Number of blobs deleted.
+    """
+    bucket = _bucket()
+    blobs = list(bucket.list_blobs(prefix=f"sessions/{session_id}/"))
+    for blob in blobs:
+        blob.delete()
+    return len(blobs)
 
 
 # ---------------------------------------------------------------------------

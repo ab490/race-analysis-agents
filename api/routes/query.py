@@ -1,5 +1,5 @@
 """
-Query routes — natural language questions answered by the orchestrator agent.
+Query routes: natural language questions answered by the orchestrator agent.
 
 POST /query/stream
   - Streaming: returns Server-Sent Events with status updates and the final report.

@@ -37,13 +37,54 @@ export async function uploadTrack(trackId, kmlFile, segmentsFile) {
   return data
 }
 
-export async function uploadSession(trackId, files, force = false) {
+export function uploadSession(trackId, files, force = false, { onStatus, onDone, onError }) {
   const form = new FormData()
   form.append('track_id', trackId)
   form.append('force', force ? 'true' : 'false')
   for (const f of files) form.append('files', f)
-  const { data } = await api.post('/upload/session', form)
-  return data
+
+  const key = getStoredApiKey()
+  const controller = new AbortController()
+
+  fetch('/api/upload/session', {
+    method: 'POST',
+    headers: key ? { 'X-API-Key': key } : {},
+    body: form,
+    signal: controller.signal,
+  }).then(async (response) => {
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      onError(err.detail || `Upload failed (${response.status})`)
+      return
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'status') onStatus(event.text)
+          else if (event.type === 'done') onDone(event.result)
+          else if (event.type === 'error') onError(event.text)
+        } catch {}
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') onError(err.message)
+  })
+
+  return () => controller.abort()
 }
 
 export async function getSessionInfo(sessionId) {

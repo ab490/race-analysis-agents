@@ -1,5 +1,5 @@
 """
-Query engine — reusable data query functions used by agents.
+Query engine: reusable data query functions used by agents.
 
 All functions operate on single topic files or small aligned subsets.
 Agents select which files to load based on the question — never load all
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from tools.csv_loader import _load_raw, _parse_filename, _align_session
+from tools.csv_loader import COORD_COLS, _align_session, _load_raw, _parse_filename
 
 
 # ---------------------------------------------------------------------------
@@ -27,9 +27,9 @@ def _apply_time_filter(
     t_end: float | None,
 ) -> pd.DataFrame:
     if t_start is not None:
-        df = df[df["t"] >= t_start]
+        df = df[df["stamp_seconds"] >= t_start]
     if t_end is not None:
-        df = df[df["t"] <= t_end]
+        df = df[df["stamp_seconds"] <= t_end]
     return df
 
 
@@ -68,7 +68,7 @@ def get_column_stats(
     if column not in df.columns:
         raise KeyError(
             f"Column '{column}' not found. "
-            f"Available: {[c for c in df.columns if c != 't']}"
+            f"Available: {[c for c in df.columns if c != 'stamp_seconds']}"
         )
 
     df = _apply_time_filter(df, t_start, t_end)
@@ -123,7 +123,7 @@ def get_time_series(
     if missing:
         raise KeyError(
             f"Columns not found: {missing}. "
-            f"Available: {[c for c in df.columns if c != 't']}"
+            f"Available: {[c for c in df.columns if c != 'stamp_seconds']}"
         )
 
     df = _apply_time_filter(df, t_start, t_end)
@@ -134,7 +134,7 @@ def get_time_series(
         df = df.iloc[::step].head(max_points)
 
     return {
-        "t": df["t"].tolist(),
+        "stamp_seconds": df["stamp_seconds"].tolist(),
         "data": {col: df[col].tolist() for col in columns},
         "total_rows": total_rows,
         "returned_rows": len(df),
@@ -179,17 +179,17 @@ def find_threshold_events(
     if column not in df.columns:
         raise KeyError(
             f"Column '{column}' not found. "
-            f"Available: {[c for c in df.columns if c != 't']}"
+            f"Available: {[c for c in df.columns if c != 'stamp_seconds']}"
         )
 
     df = _apply_time_filter(df, t_start, t_end)
     mask = getattr(df[column], ops[operator])(threshold)
-    matched = df[mask][["t", column]].dropna()
+    matched = df[mask][["stamp_seconds", column]].dropna()
 
     # Estimate total duration condition was true
     duration = 0.0
     if len(matched) > 1:
-        dt = matched["t"].diff().dropna()
+        dt = matched["stamp_seconds"].diff().dropna()
         median_gap = float(dt.median())
         duration = float(dt[dt <= 3 * median_gap].sum())
 
@@ -198,8 +198,8 @@ def find_threshold_events(
     return {
         "events": events[:200],
         "count": len(matched),
-        "first_event_t": float(matched["t"].iloc[0]) if len(matched) else None,
-        "last_event_t": float(matched["t"].iloc[-1]) if len(matched) else None,
+        "first_event_t": float(matched["stamp_seconds"].iloc[0]) if len(matched) else None,
+        "last_event_t": float(matched["stamp_seconds"].iloc[-1]) if len(matched) else None,
         "total_duration_seconds": round(duration, 3),
     }
 
@@ -261,8 +261,8 @@ def get_zone_time_windows(
     for _, group in df[in_zone].groupby(run_id[in_zone]):
         lap = int(group["lap"].iloc[0]) if "lap" in group.columns else None
         windows.append({
-            "t_start": float(group["t"].iloc[0]),
-            "t_end": float(group["t"].iloc[-1]),
+            "t_start": float(group["stamp_seconds"].iloc[0]),
+            "t_end": float(group["stamp_seconds"].iloc[-1]),
             "lap": lap,
         })
 
@@ -311,7 +311,7 @@ def get_column_stats_for_zone(
     if column not in data_df.columns:
         raise KeyError(
             f"Column '{column}' not found. "
-            f"Available: {[c for c in data_df.columns if c != 't']}"
+            f"Available: {[c for c in data_df.columns if c != 'stamp_seconds']}"
         )
 
     per_lap = []
@@ -375,22 +375,22 @@ def query_cross_topic(
     Use this for cross-topic questions like "what was the steering angle when
     speed was highest?", "compare brake pressure vs tire temperature over time".
 
-    Only pass the files relevant to the question. Column names in the result
-    are suffixed with the topic name using '__'
-    (e.g. 'actual_velocity_mps__ControlStatus').
+    Only pass the files relevant to the question. Unique column names are kept
+    as-is; only columns that appear in multiple topics are suffixed with the
+    topic name (e.g. 'speed_wheel_speed').
 
     Args:
         file_paths: List of 2–5 relevant rosbag2 CSV file paths.
-        columns:    Column names to return in 'column__topic' format.
-                    Pass an empty list to return all columns.
+        columns:    Column names to return. Pass an empty list to return all columns.
+                    Use available_columns from a prior call if unsure of exact names.
         t_start:    Optional start time filter (Unix float).
         t_end:      Optional end time filter (Unix float).
         max_points: Maximum rows to return (default 500).
 
     Returns:
         Dict with:
-            - t: list of timestamps
-            - data: dict mapping 'column__topic' to list of values
+            - stamp_seconds: list of timestamps
+            - data: dict mapping column name to list of values
             - total_rows: row count before downsampling
             - returned_rows: rows returned
             - available_columns: all columns in the aligned result
@@ -404,12 +404,15 @@ def query_cross_topic(
     for fp in file_paths:
         path = Path(fp)
         _, topic = _parse_filename(path.name)
-        topic_dfs[topic] = _load_raw(path)
+        raw = _load_raw(path)
+        if topic != "_stat":
+            raw = raw.drop(columns=[c for c in COORD_COLS if c in raw.columns], errors="ignore")
+        topic_dfs[topic] = raw
 
     df = _align_session(topic_dfs)
     df = _apply_time_filter(df, t_start, t_end)
 
-    available = [c for c in df.columns if c != "t"]
+    available = [c for c in df.columns if c != "stamp_seconds"]
 
     if columns:
         missing = [c for c in columns if c not in df.columns]
@@ -425,7 +428,7 @@ def query_cross_topic(
         df = df.iloc[::step].head(max_points)
 
     return {
-        "t": df["t"].tolist(),
+        "stamp_seconds": df["stamp_seconds"].tolist(),
         "data": {col: df[col].tolist() for col in select_cols},
         "total_rows": total_rows,
         "returned_rows": len(df),

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from google.adk.agents import Agent
 
-from tools.csv_loader import _load_raw, get_schema
+from tools.csv_loader import COORD_COLS, _align_session, _load_raw, get_schema
 from tools.gcs_store import download_raw_file as _download_raw_file
 
 # Per-request context: set by the query route before running the agent
@@ -96,6 +96,78 @@ def get_topic_file(topic_name: str) -> dict:
         return {"error": f"Topic '{topic_name}' not found in session. Check available topics in context."}
     except Exception as e:
         return {"error": str(e)}
+
+
+def align_topics(topic_names: list[str]) -> dict:
+    """
+    Download the requested topic CSVs, align them by timestamp, and return the
+    path to a single merged CSV containing all their columns.
+
+    Always call this FIRST — before any stats, event, or plot tool — passing
+    every topic you need to answer the question. The stat file (_stat) is always
+    included automatically; do not list it in topic_names.
+
+    Args:
+        topic_names: Topic names exactly as listed in "Available topics and columns"
+                     (e.g. ["ControlStatus", "wheel_speed"]). Do not include "_stat".
+
+    Returns:
+        Dict with:
+            - aligned_path: local file path to pass to all other tools
+            - columns: list of all data columns in the aligned file
+            - row_count: number of rows
+        Or {"error": "..."} on failure.
+    """
+    session_id = _session_ctx.get()
+    temp_dir = _tempdir_ctx.get()
+    if not session_id:
+        return {"error": "No session context available."}
+
+    topic_dfs = {}
+
+    # Stat file is always included — already downloaded to temp_dir at query start
+    stat_files = list(Path(temp_dir).glob("*_stat.csv"))
+    if stat_files:
+        stat_path = str(stat_files[0])
+    else:
+        try:
+            stat_path = _download_raw_file(session_id, "_stat", target_dir=temp_dir)
+        except Exception as e:
+            return {"error": f"Could not load stat file: {e}"}
+    try:
+        topic_dfs["_stat"] = _load_raw(Path(stat_path))
+    except Exception as e:
+        return {"error": f"Failed to load stat file: {e}"}
+
+    # Download and load each requested topic (strip coordinate columns to avoid
+    # collision with the stat file's lat/lon/position_x/y columns)
+    for topic in topic_names:
+        if topic in ("_stat", "stat"):
+            continue
+        try:
+            path = _download_raw_file(session_id, topic, target_dir=temp_dir)
+            df = _load_raw(Path(path))
+            df = df.drop(columns=[c for c in COORD_COLS if c in df.columns], errors="ignore")
+            topic_dfs[topic] = df
+        except FileNotFoundError:
+            return {"error": f"Topic '{topic}' not found. Check available topics in context."}
+        except Exception as e:
+            return {"error": f"Failed to load topic '{topic}': {e}"}
+
+    try:
+        aligned_df = _align_session(topic_dfs)
+    except Exception as e:
+        return {"error": f"Alignment failed: {e}"}
+
+    aligned_path = str(Path(temp_dir) / "aligned_query.csv")
+    aligned_df.to_csv(aligned_path, index=False)
+
+    columns = [c for c in aligned_df.columns if c != "stamp_seconds"]
+    return {
+        "aligned_path": aligned_path,
+        "columns": columns,
+        "row_count": len(aligned_df),
+    }
 
 
 def stats_for_column(
@@ -212,13 +284,14 @@ def correlate_signals(
     - "Compare brake pressure vs tire temperature."
     - "Show wheel speed vs vehicle speed through a lap."
 
-    Column names in the result are suffixed with the topic name
-    (e.g. 'actual_velocity_mps__ControlStatus'). If unsure which files to pass,
-    call describe_uploaded_files first to find which file contains each column.
+    Unique column names are kept as-is; only columns that appear in multiple
+    topics are suffixed with the topic name (e.g. 'speed_wheel_speed').
+    If unsure which files to pass, call describe_uploaded_files first.
 
     Args:
         file_paths: 2–5 relevant rosbag2 CSV file paths.
-        columns:    Column names in 'column__topic' format. Pass [] for all columns.
+        columns:    Column names to return. Pass [] for all columns. Use
+                    available_columns from a prior call if unsure of exact names.
         t_start:    Optional start time filter.
         t_end:      Optional end time filter.
 
@@ -386,13 +459,13 @@ def stint_trend(
     except Exception as e:
         return {"error": str(e)}
 
-    available = [c for c in df.columns if c != "t"]
+    available = [c for c in df.columns if c != "stamp_seconds"]
     if column not in df.columns:
         return {"error": f"Column '{column}' not found.", "available_columns": available}
 
     trend = []
     for b in racing:
-        window = df[(df["t"] >= b["t_start"]) & (df["t"] <= b["t_end"])][column].dropna()
+        window = df[(df["stamp_seconds"] >= b["t_start"]) & (df["stamp_seconds"] <= b["t_end"])][column].dropna()
         if window.empty:
             continue
         trend.append({"lap": b["lap"], "value": round(float(getattr(window, stat)()), 4)})
@@ -477,15 +550,15 @@ def compute_resultant(
     except Exception as e:
         return {"error": str(e)}
 
-    available = [c for c in df.columns if c != "t"]
+    available = [c for c in df.columns if c != "stamp_seconds"]
     missing = [c for c in columns if c not in df.columns]
     if missing:
         return {"error": f"Columns not found: {missing}", "available_columns": available}
 
     if t_start is not None:
-        df = df[df["t"] >= t_start]
+        df = df[df["stamp_seconds"] >= t_start]
     if t_end is not None:
-        df = df[df["t"] <= t_end]
+        df = df[df["stamp_seconds"] <= t_end]
 
     if df.empty:
         return {"error": "No data in the specified time range.", "available_columns": available}
@@ -749,14 +822,12 @@ Users can ask anything — your job is to figure out how to answer it using the 
 
 ## Step-by-step approach for any question
 
-1. **Understand what the user wants.**
-   Identify: which signal(s), over what time range (full session / specific lap / time window),
-   and what kind of answer (single number / time series / event list / comparison).
-
-2. **Identify which file contains the needed column — always from actual data.**
-   Your context includes "Available topics and columns" — this is the ground truth.
-   Check it first. Find which topic has the column closest to what the user asked for.
-   Then call get_topic_file(topic_name) to download it and get its local path.
+1. **Call align_topics first — always.**
+   Look at "Available topics and columns" in your context and identify every topic
+   that contains a column relevant to the question. Call align_topics with all of
+   them in one go. This downloads the files and merges them into a single aligned
+   CSV. Use the returned `aligned_path` for every tool call after this step.
+   The stat file is always included automatically — do not list it.
 
    If the exact column doesn't exist, look for alternatives:
    - Speed may be stored as actual_velocity_mps, hor_speed, vel_magnitude, or
@@ -765,49 +836,44 @@ Users can ask anything — your job is to figure out how to answer it using the 
    - Angular rate may be angular_velocity_x/y/z — use compute_resultant for magnitude
    - Always pick the most relevant available column rather than giving up
 
-3. **Resolve lap window if needed.**
-   If the user says "in lap 3" or "during lap 2", call resolve_lap_window first
-   to get t_start and t_end, then pass those to the query tool.
+2. **Resolve lap window if needed.**
+   If the user says "in lap 3" or "during lap 2", call resolve_lap_window to get
+   t_start and t_end, then pass those to every subsequent tool call.
 
-4. **Call the right query tool.**
-   - Single stat (max/min/mean/range) → stats_for_column
-   - Metric stored as x/y/z components → compute_resultant (e.g. sqrt(vx²+vy²+vz²))
-   - Stat scoped to a track segment/zone → stats_for_zone (pass stat file + data file)
-   - "When did X happen?" or "how long was X above Y?" → events_above_threshold
-   - "Show me X over time" or trend questions → signal_over_time
-   - Two or more signals together / correlations → correlate_signals
-   - Unsure of zone name → call list_zones with the stat file path first
+3. **Call the right query tool — all using aligned_path.**
+   - Single stat (max/min/mean/range) → stats_for_column(aligned_path, column)
+   - Metric stored as x/y/z components → compute_resultant(aligned_path, [cols])
+   - Stat scoped to a track zone → stats_for_zone(aligned_path, aligned_path, zone)
+   - "When did X happen?" / "how long was X above Y?" → events_above_threshold
+   - "Show me X over time" / trend questions → signal_over_time
+   - Unsure of zone names → list_zones(aligned_path)
    - Lap time summary / fastest lap / delta to best → summarise_lap_times
-   - "Did X degrade over the stint?" / per-lap metric trend → stint_trend
-   - Sector / zone time breakdown per lap → sector_times (needs stat file)
-   - Spikes / anomalies / unusual values → detect_anomalies
+   - Per-lap metric trend → stint_trend(aligned_path, column, lap_boundaries)
+   - Sector / zone time breakdown → sector_times(aligned_path)
+   - Spikes / anomalies → detect_anomalies(aligned_path, column)
 
-5. **Add a plot whenever it adds value.**
-   You have full access to plot tools — use them proactively, not just when
-   the user explicitly asks for a chart. Any time data is richer with a visual
-   (trends, comparisons, time traces, track maps), call a plot tool and include
-   it in your response.
-   - Any signal over time → plot_time_series
-   - Lap-by-lap comparison of a signal → plot_lap_overlay (pass lap_boundaries as lap_windows)
-   - Track position / heatmap → plot_track_map (needs stat file)
-   - Acceleration envelope → plot_gg_diagram (needs Imu file)
-   - Any "X vs Y" where X is not time (e.g. speed vs distance, steering vs speed) → plot_xy
-     For speed vs distance: x_file_path=stat file, x_column="cumulative_distance", y_file_path=ControlStatus file, y_column="actual_velocity_mps"
-   Include the figure dict verbatim from the tool result — do NOT modify it.
+4. **Add a plot whenever it adds value.**
+   Use plot tools proactively — any time a visual makes the answer richer.
+   All plots take aligned_path as the file argument.
+   - Signal over time → plot_time_series(aligned_path, columns)
+   - Lap comparison → plot_lap_overlay(aligned_path, column, lap_windows)
+   - Track map / heatmap → plot_track_map(aligned_path)
+   - GG diagram → plot_gg_diagram(aligned_path, lat_col, lon_col)
+   - X vs Y (e.g. speed vs distance) → plot_xy(aligned_path, x_col, aligned_path, y_col)
+   Include the figure dict verbatim — do NOT modify it.
 
-6. **Handle tool errors by retrying — never give up on the first error.**
-   If a tool returns `{"error": "..."}`, read the error message carefully.
-   It always includes the available column names. Pick the most relevant
-   available column and retry immediately. Only tell the user a column is
-   unavailable if there is truly no relevant alternative in the available list.
+5. **Handle tool errors by retrying — never give up on the first error.**
+   If a tool returns `{"error": "..."}`, read the available column names it returns,
+   pick the closest match, and retry. Only report a column as unavailable if there
+   is truly no relevant alternative.
 
-7. **Answer in plain English.**
+6. **Answer in plain English.**
    - Convert m/s to mph where helpful (× 2.23694)
    - Round numbers to 2 decimal places
    - If no relevant column exists at all, tell the user what IS available
 
 ## Common topic-to-column mappings (hints only — always verify against actual context)
-| What user asks about | File topic | Key columns |
+| What user asks about | Topic | Key columns |
 |---|---|---|
 | Speed / velocity | ControlStatus | actual_velocity_mps, target_velocity_mps |
 | Steering | ControlStatus | actual_steering_degree, cmd_steering_degree |
@@ -815,20 +881,13 @@ Users can ask anything — your job is to figure out how to answer it using the 
 | Brake pressure (actual) | brake_pressure_report | brake_pressure_fdbk_front, brake_pressure_fdbk_rear |
 | Wheel speed | wheel_speed | wheel_speed_fl, wheel_speed_fr, wheel_speed_rl, wheel_speed_rr |
 | Tire temperature | tire_temp_fl/fr/rl/rr | fl_tire_temp_01..04 (per corner) |
-| Tire pressure | tire_pressure_fl/fr/rl/rr | tire pressure per corner |
 | Acceleration / G-force | Imu | linear_acceleration_x/y/z |
 | Yaw / attitude | attitude_group | yawpitchroll_x/y/z |
 | GPS position | gps_top or gps_side | latitude, longitude |
 | Suspension / ride height | potentiometer | wheel_potentiometer_fl/fr/rl/rr |
-| Engine / powertrain | marelli, pt_report_1/2/3 | varies |
 | Gear | ControlStatus | actual_gear, cmd_gear |
 | Cross track / heading error | ControlStatus | cross_track_error, heading_error |
 | MPC state | ControlStatus | mpc_failed, mpc_steering_cmd |
-| Controller computation time | ControlStatus | controller_computation_time |
-
-## Column naming in cross-topic results
-When using correlate_signals, result columns are named 'column__topic'.
-Strip the suffix when presenting results to the user.
 
 ## Output format — MANDATORY
 
@@ -857,14 +916,13 @@ Rules:
 - Do not perform lap detection — use resolve_lap_window with provided boundaries
 """,
     tools=[
-        get_topic_file,
+        align_topics,
         describe_uploaded_files,
         stats_for_column,
         stats_for_zone,
         list_zones,
         signal_over_time,
         events_above_threshold,
-        correlate_signals,
         resolve_lap_window,
         summarise_lap_times,
         stint_trend,

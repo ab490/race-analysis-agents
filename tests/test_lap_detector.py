@@ -18,7 +18,7 @@ def _make_stat_df(lats, lons, cum_dists=None, t_start=0.0):
     if cum_dists is None:
         cum_dists = [float(i * 100) for i in range(n)]
     return pd.DataFrame({
-        "t": [t_start + float(i) for i in range(n)],
+        "stamp_seconds": [t_start + float(i) for i in range(n)],
         "lat": list(lats),
         "lon": list(lons),
         "cumulative_distance": list(cum_dists),
@@ -46,7 +46,7 @@ def _circular_session(start_finish, n_laps=2, pts_per_lap=60, step_m=300.0):
                 lat = start_finish[0] + R * math.sin(angle)
                 lon = start_finish[1] + R * math.cos(angle)
             rows.append({
-                "t": float(lap * pts_per_lap + i),
+                "stamp_seconds": float(lap * pts_per_lap + i),
                 "lat": lat,
                 "lon": lon,
                 "cumulative_distance": cum,
@@ -62,7 +62,7 @@ def _circular_session(start_finish, n_laps=2, pts_per_lap=60, step_m=300.0):
 
 def test_process_stat_file_adds_columns():
     df = pd.DataFrame({
-        "t": [0.0, 1.0, 2.0],
+        "stamp_seconds": [0.0, 1.0, 2.0],
         "position_x": [0.0, 10.0, 20.0],
         "position_y": [0.0, 0.0, 0.0],
     })
@@ -82,7 +82,7 @@ def test_process_stat_file_lat_lon_near_origin():
     """ENU origin should map back to approximately the reference lat/lon."""
     ref = (36.586462, -121.756647)
     df = pd.DataFrame({
-        "t": [0.0],
+        "stamp_seconds": [0.0],
         "position_x": [0.0],
         "position_y": [0.0],
     })
@@ -92,7 +92,7 @@ def test_process_stat_file_lat_lon_near_origin():
 
 
 def test_process_stat_file_missing_columns():
-    df = pd.DataFrame({"t": [0.0], "position_x": [0.0]})
+    df = pd.DataFrame({"stamp_seconds": [0.0], "position_x": [0.0]})
     with pytest.raises(ValueError, match="missing required columns"):
         process_stat_file(df, (36.0, -121.0))
 
@@ -153,7 +153,7 @@ def test_detect_laps_outlap():
     # 4 rows slightly away from S/F (each ~157 m from S/F, well outside threshold_m=20)
     for i in range(4):
         rows.append({
-            "t": float(i),
+            "stamp_seconds": float(i),
             "lat": 36.001,
             "lon": -121.001,
             "cumulative_distance": cum,
@@ -161,13 +161,13 @@ def test_detect_laps_outlap():
         cum += 60.0  # total: 240 m before first crossing
 
     # Row 4: exactly at S/F, cum = 240 m < lap_distance_threshold (500 m) → outlap branch
-    rows.append({"t": 4.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
+    rows.append({"stamp_seconds": 4.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
     cum += 60.0
 
     # Build up > 3500 m for the first racing lap
     for i in range(60):
         rows.append({
-            "t": 5.0 + i,
+            "stamp_seconds": 5.0 + i,
             "lat": 36.05,
             "lon": -121.05,
             "cumulative_distance": cum,
@@ -175,7 +175,7 @@ def test_detect_laps_outlap():
         cum += 100.0
 
     # Return to S/F — cum from lap start ≈ 6000 m > 3500 m → crossing
-    rows.append({"t": 65.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
+    rows.append({"stamp_seconds": 65.0, "lat": 36.0, "lon": -121.0, "cumulative_distance": cum})
 
     df = pd.DataFrame(rows)
     result_df, boundaries = detect_laps(df, start_finish)
@@ -198,7 +198,7 @@ def test_detect_laps_lap_column_added():
 
 
 def test_detect_laps_missing_columns():
-    df = pd.DataFrame({"t": [0.0], "lat": [36.0], "lon": [-121.0]})  # no cumulative_distance
+    df = pd.DataFrame({"stamp_seconds": [0.0], "lat": [36.0], "lon": [-121.0]})  # no cumulative_distance
     with pytest.raises(ValueError, match="Missing columns"):
         detect_laps(df, (36.0, -121.0))
 

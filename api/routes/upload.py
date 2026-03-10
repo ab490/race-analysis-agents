@@ -1,28 +1,36 @@
 """
-Upload routes — handles session CSV uploads and runs the full processing pipeline.
-
-POST /upload/session
-  - Accepts rosbag2 topic CSVs + one *_stat.csv
-  - Requires track_id to load segment definitions from GCS
-  - Runs: load → ENU→lat/lon → lap detection → segment assignment → align → save to GCS
+Upload routes: handles track information files and session CSV uploads and runs the full processing pipeline.
 
 POST /upload/track
   - Accepts *_track.kml + *_segments.csv
   - Saves track files to GCS for reuse across sessions
+  
+POST /upload/session
+  - Accepts rosbag2 topic CSVs and optionally a *_stat.csv
+  - Requires track_id to load segment definitions from GCS
+  - Incremental: new files are merged with existing GCS raw files and re-aligned
+  - If no stat file provided, reuses the enriched stat already in GCS
+  - Runs: save new files → collect all from GCS → process stat → align all → save to GCS
+
+
 """
 
+import json
 import tempfile
 from pathlib import Path
 from xml.dom import minidom
-
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from scipy.spatial import KDTree
 
 from tools.csv_loader import _load_raw, _parse_filename, get_schema
 from tools.csv_loader import load_session as csv_load_session
 from tools.gcs_store import (
+    delete_session,
+    download_raw_file,
+    list_raw_files,
     list_sessions,
     list_tracks,
     load_track_kml,
@@ -35,6 +43,16 @@ from tools.gcs_store import (
 from tools.lap_detector import detect_laps, process_stat_file
 
 router = APIRouter()
+
+
+def _sse(text: str) -> str:
+    return f"data: {json.dumps({'type': 'status', 'text': text})}\n\n"
+
+def _sse_done(result: dict) -> str:
+    return f"data: {json.dumps({'type': 'done', 'result': result})}\n\n"
+
+def _sse_error(text: str) -> str:
+    return f"data: {json.dumps({'type': 'error', 'text': text})}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -127,20 +145,12 @@ async def upload_session(
     force: bool = Form(default=False),
 ):
     """
-    Upload rosbag2 topic CSVs + one *_stat.csv for a session.
+    Upload rosbag2 topic CSVs and optionally a *_stat.csv for a session.
 
-    Runs the full processing pipeline:
-      load CSVs → ENU→lat/lon → lap detection → zone assignment → align → save to GCS
-
-    Args:
-        files:    List of CSV files (rosbag2 topics + one *_stat.csv).
-        track_id: Track identifier matching a previously uploaded track in GCS.
-        force:    If true, re-process even if the session already exists in GCS.
-
-    Returns:
-        session_id, lap count, topics uploaded, duration_seconds.
+    Returns a Server-Sent Events stream with progress updates.
+    Events: {"type": "status", "text": "..."} | {"type": "done", "result": {...}} | {"type": "error", "text": "..."}
     """
-    # Validate track exists
+    # Validate and read all files before streaming starts (HTTPException still works here)
     available_tracks = list_tracks()
     if track_id not in available_tracks:
         raise HTTPException(
@@ -148,97 +158,165 @@ async def upload_session(
             detail=f"Track '{track_id}' not found. Available: {available_tracks}",
         )
 
-    # Save uploaded files to a temp directory
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_paths = []
-        stat_path = None
-        raw_files = []  # (filename, bytes) — held for GCS raw/ upload after session_id is known
+    file_data: list[tuple[str, bytes, str]] = []  # (filename, bytes, topic)
+    session_id = None
+    has_stat = False
 
-        for upload in files:
-            if not upload.filename.endswith(".csv"):
-                raise HTTPException(status_code=422, detail=f"Only CSV files accepted, got: {upload.filename}")
-
-            file_bytes = await upload.read()
-            dest = Path(tmpdir) / upload.filename
-            dest.write_bytes(file_bytes)
-            file_paths.append(str(dest))
-            raw_files.append((upload.filename, file_bytes))
-
-            if upload.filename.lower().endswith("_stat.csv"):
-                stat_path = str(dest)
-
-        if stat_path is None:
+    for upload in files:
+        if not upload.filename.endswith(".csv"):
+            raise HTTPException(status_code=422, detail=f"Only CSV files accepted, got: {upload.filename}")
+        file_bytes = await upload.read()
+        try:
+            sid, topic = _parse_filename(upload.filename)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Filename does not match rosbag2 pattern: {upload.filename}")
+        if session_id is None:
+            session_id = sid
+        elif session_id != sid:
             raise HTTPException(
                 status_code=422,
-                detail="No *_stat.csv file found. Upload exactly one stat file per session.",
+                detail=f"All files must belong to the same session. Got '{sid}', expected '{session_id}'.",
             )
+        if topic == "_stat":
+            has_stat = True
+        file_data.append((upload.filename, file_bytes, topic))
 
-        # Detect session_id from rosbag2 filenames
-        rosbag_files = [f for f in file_paths if not Path(f).name.lower().endswith("_stat.csv")]
-        if not rosbag_files:
-            raise HTTPException(status_code=422, detail="No rosbag2 topic CSV files found.")
+    if not session_id:
+        raise HTTPException(status_code=422, detail="No valid rosbag2 CSV files found.")
+    if force and not has_stat:
+        raise HTTPException(
+            status_code=422,
+            detail="force=true requires a *_stat.csv so the session can be fully reprocessed from scratch.",
+        )
 
-        session_id = _parse_filename(Path(rosbag_files[0]).name)[0]
+    async def event_generator():
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # ----------------------------------------------------------------
+                # Step 1: Write uploaded files to temp dir, detect session_id
+                # ----------------------------------------------------------------
+                new_stat_path = None
+                pending_saves = []
 
-        if session_exists(session_id) and not force:
-            return {
-                "message": "Session already processed. Pass force=true to re-process.",
-                "session_id": session_id,
-                "reprocessed": False,
-            }
+                for filename, file_bytes, topic in file_data:
+                    dest = Path(tmpdir) / filename
+                    dest.write_bytes(file_bytes)
+                    pending_saves.append((filename, file_bytes))
+                    if topic == "_stat":
+                        new_stat_path = str(dest)
 
-        # Save raw uploaded files to GCS before any processing
-        for filename, file_bytes in raw_files:
-            save_raw_file(session_id, filename, file_bytes)
+                # ----------------------------------------------------------------
+                # Step 1b: Force wipe — delete all existing GCS data for the session
+                # ----------------------------------------------------------------
+                if force:
+                    yield _sse("Wiping existing session data…")
+                    delete_session(session_id)
 
-        # Load track files from GCS
-        segments_df   = load_track_segments(track_id)
-        kml_bytes     = load_track_kml(track_id)
-        centerline_df = _parse_kml_centerline(kml_bytes)
-        start_finish  = _parse_start_finish(segments_df)
+                # Save uploaded files to GCS (after any force-delete so they aren't wiped)
+                yield _sse(f"Saving {len(pending_saves)} {'file' if len(pending_saves) == 1 else 'files'} to storage…")
+                for filename, file_bytes in pending_saves:
+                    save_raw_file(session_id, filename, file_bytes)
 
-        # Load and process stat file
-        stat_df = _load_raw(Path(stat_path))
-        stat_df = process_stat_file(stat_df, start_finish)
-        stat_df = _assign_zones(stat_df, centerline_df, segments_df)
-        stat_df, lap_boundaries = detect_laps(stat_df, start_finish)
+                # ----------------------------------------------------------------
+                # Step 2: Collect ALL raw topic names for this session from GCS
+                # ----------------------------------------------------------------
+                all_topics = list_raw_files(session_id)
+                if not all_topics:
+                    yield _sse_error("No raw files found in GCS for this session after upload.")
+                    return
 
-        # Replace stat file with the enriched version (lat/lon/zone/lap columns added)
-        enriched_stat_path = Path(tmpdir) / Path(stat_path).name
-        # Save enriched stat as temp CSV so csv_loader can re-read it with standard pipeline
-        # Use stamp_seconds since t column is already float
-        stat_df_out = stat_df.copy()
-        stat_df_out.insert(0, "stamp_seconds", stat_df_out.pop("t"))
-        stat_df_out.to_csv(enriched_stat_path, index=False)
+                # ----------------------------------------------------------------
+                # Step 3: Process stat file (new or reuse enriched from GCS)
+                # ----------------------------------------------------------------
+                if new_stat_path:
+                    yield _sse("Processing stat file (GPS conversion, zone assignment, lap detection)…")
+                    segments_df   = load_track_segments(track_id)
+                    kml_bytes     = load_track_kml(track_id)
+                    centerline_df = _parse_kml_centerline(kml_bytes)
+                    start_finish  = _parse_start_finish(segments_df)
 
-        # Overwrite the original stat in GCS raw/ with the enriched version
-        # (adds lat, lon, zone, lap columns that agents need at query time)
-        save_raw_file(session_id, Path(stat_path).name, enriched_stat_path.read_bytes())
+                    stat_df = _load_raw(Path(new_stat_path))
+                    stat_df = process_stat_file(stat_df, start_finish)
+                    stat_df = _assign_zones(stat_df, centerline_df, segments_df)
+                    stat_df, lap_boundaries = detect_laps(stat_df, start_finish)
 
-        # Update file_paths to use enriched stat
-        file_paths = [f for f in file_paths if not Path(f).name.lower().endswith("_stat.csv")]
-        file_paths.append(str(enriched_stat_path))
+                    # Save enriched stat back to GCS (overwrites the raw version)
+                    enriched_stat_path = Path(tmpdir) / Path(new_stat_path).name
+                    stat_df.to_csv(enriched_stat_path, index=False)
+                    save_raw_file(session_id, Path(new_stat_path).name, enriched_stat_path.read_bytes())
+                    yield _sse(f"Stat processed — {len(lap_boundaries)} lap(s) detected.")
+                else:
+                    # Reuse existing enriched stat from GCS
+                    if "_stat" not in all_topics:
+                        yield _sse_error("No stat file in this upload and no existing stat found in GCS. Upload a *_stat.csv first.")
+                        return
+                    yield _sse("Loading existing enriched stat file…")
+                    enriched_stat_path_str = download_raw_file(session_id, "_stat", target_dir=tmpdir)
+                    enriched_stat_path = Path(enriched_stat_path_str)
+                    stat_df = _load_raw(enriched_stat_path)
 
-        # Load and align all topics
-        sessions = csv_load_session(file_paths)
-        df = sessions[session_id]
+                    # Rebuild lap_boundaries from the 'lap' column already in the enriched stat
+                    if "lap" not in stat_df.columns:
+                        yield _sse_error("Existing stat file has no 'lap' column. Re-upload the stat file to reprocess.")
+                        return
+                    lap_boundaries = []
+                    for lap in sorted(stat_df["lap"].unique()):
+                        if lap < 1:
+                            continue
+                        lap_rows = stat_df[stat_df["lap"] == lap]
+                        lap_boundaries.append({
+                            "lap": int(lap),
+                            "t_start": float(lap_rows["stamp_seconds"].iloc[0]),
+                            "t_end": float(lap_rows["stamp_seconds"].iloc[-1]),
+                        })
 
-        # Get schema — include the enriched stat so zone/lap/lat/lon columns are listed
-        schema = get_schema(file_paths)
+                # ----------------------------------------------------------------
+                # Step 4: Download ALL topic files (except stat, already in tmpdir)
+                # ----------------------------------------------------------------
+                other_topics = [t for t in all_topics if t != "_stat"]
+                yield _sse(f"Downloading {len(other_topics)} topic {'file' if len(other_topics) == 1 else 'files'} from storage…")
+                stat_filename = enriched_stat_path.name
+                file_paths = [str(enriched_stat_path)]
 
-        # Save to GCS
-        save_session(session_id, df, lap_boundaries, schema.get(session_id, {}))
+                for topic in other_topics:
+                    try:
+                        local_path = download_raw_file(session_id, topic, target_dir=tmpdir)
+                        file_paths.append(local_path)
+                    except FileNotFoundError:
+                        pass  # topic listed but blob missing — skip gracefully
 
-    return {
-        "message": "Session processed and saved successfully.",
-        "session_id": session_id,
-        "lap_count": len(lap_boundaries),
-        "laps": lap_boundaries,
-        "topics": len(rosbag_files),
-        "duration_seconds": round(
-            lap_boundaries[-1]["t_end"] - lap_boundaries[0]["t_start"], 1
-        ) if lap_boundaries else 0,
-    }
+                # ----------------------------------------------------------------
+                # Step 5: Align all topics and save to GCS
+                # ----------------------------------------------------------------
+                yield _sse(f"Aligning {len(file_paths) - 1} topic(s) by timestamp…")
+                sessions = csv_load_session(file_paths)
+                df = sessions[session_id]
+
+                yield _sse("Saving processed session to storage…")
+                schema = get_schema(file_paths)
+                save_session(session_id, df, lap_boundaries, schema.get(session_id, {}))
+
+                topic_count = len([f for f in file_paths if not Path(f).name.endswith(stat_filename)])
+
+                yield _sse_done({
+                    "message": "Session processed and saved successfully.",
+                    "session_id": session_id,
+                    "lap_count": len(lap_boundaries),
+                    "laps": lap_boundaries,
+                    "topics": topic_count,
+                    "duration_seconds": round(
+                        lap_boundaries[-1]["t_end"] - lap_boundaries[0]["t_start"], 1
+                    ) if lap_boundaries else 0,
+                })
+
+        except Exception as e:
+            yield _sse_error(str(e))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/track")
@@ -248,7 +326,7 @@ async def upload_track(
     segments_file: UploadFile = File(...),
 ):
     """
-    Upload track setup files — KML centerline and segment definitions CSV.
+    Upload track setup files - KML centerline and segment definitions CSV.
 
     The segments CSV must have columns: segment, start_lat, start_lon, end_lat, end_lon.
     The first row must be 'start_finish'.

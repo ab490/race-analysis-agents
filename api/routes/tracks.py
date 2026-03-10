@@ -1,8 +1,8 @@
 """
-Tracks routes — list available tracks and their segment info.
+Tracks routes: list available tracks and their segment info.
 
-GET /tracks/            — list all track IDs in GCS
-GET /tracks/{track_id}  — get segment definitions for a track
+GET /tracks/             - list all track IDs in GCS
+GET /tracks/{track_id}   - get segment definitions for a track
 """
 
 from fastapi import APIRouter, HTTPException

@@ -25,7 +25,7 @@ BRAKE_CSV = str(DATA_DIR / f"{SESSION_ID}_brake_pressure_report.csv")
 def _first_numeric_col(file_path: str) -> str:
     """Return the first non-timestamp column from a CSV file."""
     df = _load_raw(Path(file_path))
-    return [c for c in df.columns if c != "t"][0]
+    return [c for c in df.columns if c != "stamp_seconds"][0]
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +54,8 @@ def test_get_column_stats_column_not_found():
 def test_get_column_stats_time_filter_reduces_count():
     col = _first_numeric_col(WHEEL_CSV)
     df = _load_raw(Path(WHEEL_CSV))
-    t_min = float(df["t"].min())
-    t_max = float(df["t"].max())
+    t_min = float(df["stamp_seconds"].min())
+    t_max = float(df["stamp_seconds"].max())
     t_mid = (t_min + t_max) / 2.0
 
     full = get_column_stats(WHEEL_CSV, col)
@@ -71,22 +71,22 @@ def test_get_column_stats_time_filter_reduces_count():
 
 def test_get_time_series_returns_aligned_lists():
     df = _load_raw(Path(WHEEL_CSV))
-    cols = [c for c in df.columns if c != "t"][:2]
+    cols = [c for c in df.columns if c != "stamp_seconds"][:2]
     result = get_time_series(WHEEL_CSV, cols)
 
-    assert "t" in result
+    assert "stamp_seconds" in result
     assert "data" in result
     assert "total_rows" in result
     assert "returned_rows" in result
     for col in cols:
-        assert len(result["data"][col]) == len(result["t"])
+        assert len(result["data"][col]) == len(result["stamp_seconds"])
 
 
 def test_get_time_series_respects_max_points():
     col = _first_numeric_col(WHEEL_CSV)
     result = get_time_series(WHEEL_CSV, [col], max_points=50)
     assert result["returned_rows"] <= 50
-    assert len(result["t"]) == result["returned_rows"]
+    assert len(result["stamp_seconds"]) == result["returned_rows"]
 
 
 def test_get_time_series_column_not_found():
@@ -224,11 +224,11 @@ def test_get_column_stats_for_zone_per_lap_breakdown(synthetic_stat_csv, synthet
 
 def test_query_cross_topic_aligns_two_files():
     result = query_cross_topic([WHEEL_CSV, BRAKE_CSV], columns=[])
-    assert "t" in result
+    assert "stamp_seconds" in result
     assert "data" in result
     assert "available_columns" in result
     assert result["returned_rows"] > 0
-    assert len(result["t"]) == result["returned_rows"]
+    assert len(result["stamp_seconds"]) == result["returned_rows"]
 
 
 def test_query_cross_topic_too_many_files():
