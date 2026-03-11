@@ -4,6 +4,7 @@ AI powered telemetry analysis platform for autonomous racing data.
 
 This system allows engineers to **upload race sessions, process multi-sensor telemetry and query driving performance using natural language.** The platform automatically generates **statistics, visualizations and insights** about vehicle behavior.
 
+![Race Analysis Dashboard](images/speed_profile.png)
 ---
 
 # Overview
@@ -40,6 +41,7 @@ Ask questions such as:
 - *"Compare wheel speed across all laps."*
 
 AI agents automatically run data queries and generate charts.
+
 
 ---
 
@@ -80,7 +82,29 @@ Generated reports include:
 - track heatmaps
 - lap comparisons
 
-All visualizations are rendered with **Plotly**.
+---
+## Demo
+
+Query: *"Plot the brake pressure in lap 2"*
+
+<img src="images/brake_pressure_lap2.png" width="900">
+
+The system automatically filters telemetry data for **Lap 2**, extracts the available brake pressure signals, and generates a time-series visualization of **front and rear brake pressure**. This allows engineers to analyze braking events, evaluate brake balance and understand how braking inputs evolve throughout the lap.
+
+Query: *"Show the raceline for lap 3 colored by speed"*
+
+<img src="images/raceline.png" width="900">
+
+The system filters telemetry for **Lap 3** and visualizes the vehicle raceline across the track, coloring each point based on vehicle speed.  
+This helps engineers identify **which turns, especially tight corners, had lower speeds** and where on the track the vehicle reached **maximum speeds**, providing insight into acceleration zones, braking regions and overall racing line performance.
+
+Query: *"Was there any sudden jump in the localization?"*
+
+<img src="images/localization.png" width="900">
+
+The AI system interprets the query and automatically determines what **"localization"** refers to in the telemetry dataset. It selects the relevant signals, analyzes the data for anomalies, and produces both a **natural language explanation** and a **diagnostic plot** highlighting sudden jumps or irregular patterns in the localization signals.
+
+This enables engineers to quickly identify potential localization failures or state estimation instability during the race session.
 
 ---
 
