@@ -16,6 +16,7 @@ This system allows engineers to **upload race sessions, process multi-sensor tel
   - [Multi-Sensor Data Alignment](#multi-sensor-data-alignment)
   - [Track-Aware Analysis](#track-aware-analysis)
   - [Interactive Visualization](#interactive-visualization)
+- [Tech Stack](#tech-stack)
 - [Demo](#demo)
 - [Quick Start](#quick-start)
 - [Upload Requirements](#upload-requirements)
@@ -99,6 +100,34 @@ Generated reports include:
 - GG diagrams
 - track heatmaps
 - lap comparisons
+
+---
+## Tech-Stack
+
+### Cloud & AI Infrastructure
+- **Google Cloud Platform (GCP)**: project infrastructure and service management  
+- **Google Cloud Storage (GCS)**: storage for telemetry sessions, track files, and processed data  
+- **Vertex AI**: large language model inference for telemetry analysis and agent reasoning  
+
+### Backend
+- **Python**
+- **FastAPI**: REST API and SSE streaming for query responses
+- **Google ADK**: agent framework for telemetry analysis
+- **Pandas / NumPy**: telemetry data processing
+- **Plotly**: server-side generation of engineering visualizations
+- **uv**: Python dependency management
+
+### Frontend
+- **React**
+- **Vite**
+- **TailwindCSS**
+- **Axios**
+- **react-plotly.js**: interactive telemetry visualization
+
+### Data Sources
+- **ROS2 telemetry topics**
+- Vehicle dynamics signals (IMU, GPS, wheel speed, brake pressure, tire temperature)
+- Track geometry (KML centerline + segment definitions)
 
 ---
 ## Demo
