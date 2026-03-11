@@ -1,6 +1,86 @@
 # Race Analysis Agents
 
-A platform for autonomous race car telemetry analysis.
+AI powered telemetry analysis platform for autonomous racing data.
+
+This system allows engineers to **upload race sessions, process multi-sensor telemetry and query driving performance using natural language.** The platform automatically generates **statistics, visualizations and insights** about vehicle behavior.
+
+---
+
+# Overview
+
+Autonomous race cars generate large amounts of telemetry data across many sensors:
+
+- wheel speed  
+- tire temperature  
+- brake pressure  
+- vehicle position  
+- planner status  
+- MPC predictions  
+
+Analyzing this data manually is time-consuming.
+
+Race Analysis Agents uses **AI agents and automated pipelines** to:
+
+- align multi-topic telemetry
+- detect laps and track segments
+- compute race statistics
+- generate visualizations
+- answer engineering questions about vehicle performance
+
+---
+
+# Features
+
+## AI Telemetry Querying
+
+Ask questions such as:
+
+- *"What was the maximum speed in sector 1?"*  
+- *"Which lap had the highest lateral acceleration?"*  
+- *"Compare wheel speed across all laps."*
+
+AI agents automatically run data queries and generate charts.
+
+---
+
+## Multi-Sensor Data Alignment
+
+The system processes ROS2 telemetry topics and aligns them onto a unified timeline.
+
+Pipeline includes:
+
+- timestamp normalization  
+- ENU to GPS coordinate conversion  
+- lap detection  
+- segment classification  
+
+---
+
+## Track-Aware Analysis
+
+Track geometry is loaded using:
+
+- KML centerline files
+- segment boundary definitions
+
+This enables queries like:
+
+- sector analysis
+- corner performance
+- lap comparison
+
+---
+
+## Interactive Visualization
+
+Generated reports include:
+
+- time series charts
+- GG diagrams
+- track heatmaps
+- lap comparisons
+
+All visualizations are rendered with **Plotly**.
 
 ---
 
