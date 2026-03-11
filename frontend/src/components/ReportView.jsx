@@ -1,7 +1,7 @@
 import Markdown from 'react-markdown'
 import PlotSection from './PlotSection'
 
-export default function ReportView({ report }) {
+export default function ReportView({ report, printing = false }) {
   if (!report) return null
 
   return (
@@ -18,7 +18,7 @@ export default function ReportView({ report }) {
           )
         }
         if (section.type === 'plot') {
-          return <PlotSection key={i} figure={section.figure} caption={section.caption} />
+          return <PlotSection key={i} figure={section.figure} caption={section.caption} printing={printing} />
         }
         return null
       })}

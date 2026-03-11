@@ -56,6 +56,17 @@ export default function ChatPage({ sessionId, onSessionChange }) {
     })
   }
 
+  const [printing, setPrinting] = useState(false)
+
+  function handleExportPDF() {
+    setPrinting(true)
+    // Wait two animation frames so React re-renders PlotSection with light theme before printing
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.print()
+      setPrinting(false)
+    }))
+  }
+
   const lapCount = sessionMeta?.lap_boundaries?.filter(b => b.lap > 0).length ?? 0
 
   return (
@@ -160,7 +171,7 @@ export default function ChatPage({ sessionId, onSessionChange }) {
         {/* Download PDF button */}
         {messages.some(m => m.role === 'assistant') && (
           <button
-            onClick={() => window.print()}
+            onClick={handleExportPDF}
             className="print:hidden absolute top-4 right-6 z-10 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs px-3 py-1.5 rounded-lg transition"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -189,7 +200,7 @@ export default function ChatPage({ sessionId, onSessionChange }) {
                   <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold">Q</span>
                   <p className="text-slate-300 text-sm font-medium">{pair.question}</p>
                 </div>
-                {pair.report && <ReportView report={pair.report} />}
+                {pair.report && <ReportView report={pair.report} printing={printing} />}
               </div>
             ))}
             {loading && (
