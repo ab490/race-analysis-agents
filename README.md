@@ -5,9 +5,27 @@ AI powered telemetry analysis platform for autonomous racing data.
 This system allows engineers to **upload race sessions, process multi-sensor telemetry and query driving performance using natural language.** The platform automatically generates **statistics, visualizations and insights** about vehicle behavior.
 
 ![Race Analysis Dashboard](images/speed_profile.png)
+
 ---
 
-# Overview
+## Contents
+
+- [Overview](#overview)
+- [Features](#features)
+  - [AI Telemetry Querying](#ai-telemetry-querying)
+  - [Multi-Sensor Data Alignment](#multi-sensor-data-alignment)
+  - [Track-Aware Analysis](#track-aware-analysis)
+  - [Interactive Visualization](#interactive-visualization)
+- [Demo](#demo)
+- [Quick Start](#quick-start)
+- [Upload Requirements](#upload-requirements)
+- [Repository Structure](#repository-structure)
+- [Design Highlights](#design-highlights)
+- [Development](#development)
+
+---
+
+## Overview
 
 Autonomous race cars generate large amounts of telemetry data across many sensors:
 
@@ -30,9 +48,9 @@ Race Analysis Agents uses **AI agents and automated pipelines** to:
 
 ---
 
-# Features
+## Features
 
-## AI Telemetry Querying
+### AI Telemetry Querying
 
 Ask questions such as:
 
@@ -45,7 +63,7 @@ AI agents automatically run data queries and generate charts.
 
 ---
 
-## Multi-Sensor Data Alignment
+### Multi-Sensor Data Alignment
 
 The system processes ROS2 telemetry topics and aligns them onto a unified timeline.
 
@@ -58,7 +76,7 @@ Pipeline includes:
 
 ---
 
-## Track-Aware Analysis
+### Track-Aware Analysis
 
 Track geometry is loaded using:
 
@@ -73,7 +91,7 @@ This enables queries like:
 
 ---
 
-## Interactive Visualization
+### Interactive Visualization
 
 Generated reports include:
 
@@ -191,28 +209,30 @@ race-analysis-agents/
 └── pyproject.toml                  # Python project config and dependencies (uv)    
 ``` 
 
-### Key design points
+---
 
-- **`agents/`** - each agent is a folder with `agent.py` exposing `root_agent`. Tools are plain Python functions; ADK uses their docstrings to decide when to call them.
-- **`tools/`** - pure library layer. Agents never parse CSVs directly; all data access goes through these modules.
-- **`api/routes/query.py`** - routes questions by keyword: schema questions -> `data_agent`, plot/chart/graph keywords -> `plot_agent`, everything else -> `qa_agent`. Intercepts Plotly figure dicts from the ADK event stream and injects them into the final report (prevents the LLM from having to embed large figure dicts in JSON).
-- **`agents/qa_agent/agent.py`** - uses ContextVars (`_session_ctx`, `_tempdir_ctx`) so `align_topics()` and `get_topic_file()` can lazily download topic CSVs from GCS on demand without passing session state through every tool call.
-- **Alignment** - the stat file is always the base timeline. All other topics align to it via nearest-index lookup. No interpolation.
+## Design Highlights
+
+- **`agents/`**: Each agent is implemented as a folder containing `agent.py` exposing a `root_agent`. Tools are plain Python functions, and the ADK selects tools based on their docstrings.
+
+- **`tools/`**: Pure library layer for telemetry processing and querying. Agents never parse CSVs directly; all data access goes through these modules.
+
+- **Query routing**: `api/routes/query.py` routes questions to the appropriate agent:
+  - schema discovery -> `data_agent`
+  - visualization requests -> `plot_agent`
+  - analysis queries -> `qa_agent`
+
+- **Lazy data loading**: `qa_agent` uses `ContextVars` to lazily download topic CSVs from cloud storage when needed, avoiding unnecessary data loading.
+
+- **Telemetry alignment**: The stat file provides the base timeline. All other topics are aligned to it using nearest timestamp lookup (no interpolation).
 
 ---
 
 ## Development
 
-```bash
-# Backend
-uv sync
-uv run uvicorn api.main:app --reload     # http://localhost:8000
-uv run pytest                            # run tests
-uv run ruff check .                      # lint
-uv run ruff format .                     # format
+Development utilities for testing and maintaining code quality.
 
-# Frontend
-cd frontend && npm install
-cd frontend && npm run dev               # http://localhost:5173
-cd frontend && npm run build             # production build
-```
+```bash
+uv run pytest          # run tests
+uv run ruff check .    # lint
+uv run ruff format .   # format code
