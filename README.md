@@ -8,7 +8,7 @@ This system allows engineers to **upload race sessions, process multi-sensor tel
 
 The application is containerized using **Docker** and deployed on **Google Cloud Run**.
 
-**Web application:** https://race-analysis-936789772659.us-central1.run.app/
+**Web application:** [Race Analysis Web Application](https://race-analysis-936789772659.us-central1.run.app/)
 
 *Access requires an API key. If you'd like to try the application, feel free to contact me at anooshkabajaj@gmail.com*
 
