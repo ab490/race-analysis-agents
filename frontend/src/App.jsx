@@ -39,7 +39,7 @@ export default function App() {
             type="password"
             value={apiKey}
             onChange={handleKeyChange}
-            placeholder="not required"
+            placeholder="enter API key"
             className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500 w-40"
           />
         </div>

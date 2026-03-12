@@ -6,6 +6,12 @@ This system allows engineers to **upload race sessions, process multi-sensor tel
 
 ![Race Analysis Dashboard](images/speed_profile.png)
 
+The application is containerized using **Docker** and deployed on **Google Cloud Run**.
+
+**Web application:** https://race-analysis-936789772659.us-central1.run.app/
+
+*Access requires an API key. If you'd like to try the application, feel free to contact me at anooshkabajaj@gmail.com*
+
 ---
 
 ## Contents
@@ -232,6 +238,9 @@ race-analysis-agents/
 │   └── vite.config.js             
 │
 ├── tests/                          # Pytest tests
+├── Dockerfile                      # Container build configuration
+├── .dockerignore                   # Files excluded from Docker image
+├── .gcloudignore                   # Files excluded from Cloud Build upload
 ├── docs/                           # Project documentation
 ├── images/                         # Images for README
 ├── main.py                         # Uvicorn endpoint
@@ -256,6 +265,7 @@ race-analysis-agents/
 - **Telemetry alignment**: The stat file provides the base timeline. All other topics are aligned to it using nearest timestamp lookup (no interpolation).
 
 ---
+
 
 ## Development
 
