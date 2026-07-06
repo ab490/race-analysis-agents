@@ -18,6 +18,17 @@ export function setStoredApiKey(key) {
   else localStorage.removeItem('api_key')
 }
 
+// Lightweight check against a real authenticated endpoint - resolves true only
+// if the stored key (or no key, when auth is disabled server-side) is accepted.
+export async function validateApiKey() {
+  try {
+    await api.get('/tracks/')
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function getSessions() {
   const { data } = await api.get('/upload/sessions')
   return data.sessions
