@@ -9,23 +9,25 @@ Storage layout in GCS:
         ControlStatus.csv
         session_stat.csv
         ...
-      processed/            <- output of the upload pipeline
-        aligned.parquet
-        laps.json
-        schema.json
+      processed/            <- lightweight metadata from the upload pipeline
+        laps.json           <- lap boundaries
+        schema.json         <- topics, columns, time range, row counts
     tracks/<track_id>/
       centerline.kml
       segments.csv
 
-At query time, agents download individual topic CSVs from raw/ to a local
-temp file and pass that path to query_engine functions, keeping query_engine
-independent of GCS.
+The full aligned dataset is intentionally NOT stored: at query time agents
+download the individual raw topic CSVs they need and re-align them on demand,
+so pre-aligning every topic at upload would be wasted work (and a memory
+hazard on large sessions). schema.json doubles as the "session processed"
+marker.
 """
 
 import io
 import json
 import os
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 import pandas as pd
 from google.cloud import storage
@@ -36,36 +38,86 @@ def _bucket() -> storage.Bucket:
     return client.bucket(os.getenv("GCS_BUCKET_NAME"))
 
 
+def generate_raw_upload_url(
+    session_id: str,
+    filename: str,
+    content_type: str = "text/csv",
+    expiration_minutes: int = 60,
+) -> str:
+    """
+    Generate a v4 signed URL that lets a client PUT a raw CSV directly to GCS,
+    bypassing the backend (and Cloud Run's 32 MiB request limit).
+
+    The object is placed at sessions/<session_id>/raw/<filename> - exactly where
+    save_raw_file() would put it - so the existing processing pipeline can pick
+    it up unchanged.
+
+    The client MUST send the same Content-Type header ('text/csv') when it PUTs,
+    or the signature will not match.
+
+    Args:
+        session_id:         Session identifier (rosbag2 prefix).
+        filename:           Original filename (e.g. 'rosbag2_..._wheel_speed.csv').
+        content_type:       Content-Type the client will use for the PUT.
+        expiration_minutes: How long the URL stays valid.
+
+    Returns:
+        A signed HTTPS URL the client can PUT the file bytes to.
+    """
+    blob = _bucket().blob(f"sessions/{session_id}/raw/{filename}")
+    kwargs = dict(
+        version="v4",
+        expiration=timedelta(minutes=expiration_minutes),
+        method="PUT",
+        content_type=content_type,
+    )
+    try:
+        # Works when credentials can sign locally (service-account key file).
+        return blob.generate_signed_url(**kwargs)
+    except Exception:
+        # No local private key (e.g. Cloud Run runtime SA): sign via the IAM
+        # SignBlob API using the runtime service account's access token. This
+        # requires the SA to have roles/iam.serviceAccountTokenCreator on itself.
+        from google import auth
+        from google.auth.transport import requests as grequests
+
+        credentials, _ = auth.default()
+        credentials.refresh(grequests.Request())
+        return blob.generate_signed_url(
+            service_account_email=credentials.service_account_email,
+            access_token=credentials.token,
+            **kwargs,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Session storage
 # ---------------------------------------------------------------------------
 
-def save_session(
+def save_session_meta(
     session_id: str,
-    df: pd.DataFrame,
     lap_boundaries: list[dict],
     schema: dict,
 ) -> None:
     """
-    Save a processed and aligned session DataFrame to GCS.
+    Save only the session metadata (lap boundaries + schema) to GCS.
+
+    This is all that query-time needs: agents re-align the specific topics a
+    question requires directly from the raw CSVs, so the full aligned dataset is
+    never read. Skipping it avoids loading/aligning every topic in memory at
+    upload (the main cause of OOM on large sessions).
 
     Args:
-        session_id:     Unique session identifier (rosbag2 prefix).
-        df:             Fully aligned DataFrame (output of csv_loader.load_session).
+        session_id:     Unique session identifier.
         lap_boundaries: List of {lap, t_start, t_end} dicts from lap_detector.
         schema:         Session schema dict from csv_loader.get_schema.
     """
     bucket = _bucket()
     prefix = f"sessions/{session_id}/processed"
 
-    bucket.blob(f"{prefix}/aligned.csv").upload_from_string(
-        df.to_csv(index=False), content_type="text/csv"
-    )
-
     bucket.blob(f"{prefix}/laps.json").upload_from_string(
         json.dumps(lap_boundaries), content_type="application/json"
     )
-
     bucket.blob(f"{prefix}/schema.json").upload_from_string(
         json.dumps(schema), content_type="application/json"
     )
@@ -73,9 +125,10 @@ def save_session(
 
 def load_session_meta(session_id: str) -> tuple[list[dict], dict]:
     """
-    Load lap boundaries and schema for a session without downloading the parquet.
+    Load lap boundaries and schema for a session.
 
-    Use this at query time, the aligned parquet is not needed for agent queries.
+    This is all agent queries need - the full aligned dataset is never read at
+    query time (topics are re-aligned on demand from raw files).
 
     Args:
         session_id: Unique session identifier.
@@ -89,7 +142,7 @@ def load_session_meta(session_id: str) -> tuple[list[dict], dict]:
     bucket = _bucket()
     prefix = f"sessions/{session_id}/processed"
 
-    if not bucket.blob(f"{prefix}/aligned.csv").exists():
+    if not bucket.blob(f"{prefix}/schema.json").exists():
         raise FileNotFoundError(f"Session '{session_id}' not found in GCS.")
 
     lap_boundaries = json.loads(bucket.blob(f"{prefix}/laps.json").download_as_text())
@@ -98,38 +151,9 @@ def load_session_meta(session_id: str) -> tuple[list[dict], dict]:
     return lap_boundaries, schema
 
 
-def load_session(session_id: str) -> tuple[pd.DataFrame, list[dict], dict]:
-    """
-    Load a processed session from GCS including the full aligned DataFrame.
-
-    Prefer load_session_meta when only lap boundaries and schema are needed.
-
-    Args:
-        session_id: Unique session identifier.
-
-    Returns:
-        Tuple of (aligned DataFrame, lap_boundaries, schema).
-
-    Raises:
-        FileNotFoundError: If the session does not exist in GCS.
-    """
-    bucket = _bucket()
-    prefix = f"sessions/{session_id}/processed"
-
-    blob = bucket.blob(f"{prefix}/aligned.csv")
-    if not blob.exists():
-        raise FileNotFoundError(f"Session '{session_id}' not found in GCS.")
-
-    df = pd.read_csv(io.StringIO(blob.download_as_text()))
-    lap_boundaries = json.loads(bucket.blob(f"{prefix}/laps.json").download_as_text())
-    schema = json.loads(bucket.blob(f"{prefix}/schema.json").download_as_text())
-
-    return df, lap_boundaries, schema
-
-
 def session_exists(session_id: str) -> bool:
     """Check if a session has already been processed and stored in GCS."""
-    return _bucket().blob(f"sessions/{session_id}/processed/aligned.csv").exists()
+    return _bucket().blob(f"sessions/{session_id}/processed/schema.json").exists()
 
 
 def list_sessions() -> list[str]:
@@ -138,8 +162,8 @@ def list_sessions() -> list[str]:
     session_ids = set()
     for blob in bucket.list_blobs(prefix="sessions/"):
         parts = blob.name.split("/")
-        # Only include sessions that have a completed aligned.parquet
-        if len(parts) >= 4 and parts[2] == "processed" and parts[3] == "aligned.csv":
+        # A session is "processed" once its schema.json exists
+        if len(parts) >= 4 and parts[2] == "processed" and parts[3] == "schema.json":
             session_ids.add(parts[1])
     return sorted(session_ids)
 

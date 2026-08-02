@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "https://race-analysis-410676170619.us-central1.run.app",
+      "http://localhost:5173"
+    ],
+    "method": ["PUT", "OPTIONS"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]

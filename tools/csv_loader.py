@@ -310,7 +310,9 @@ def get_schema(file_paths: list[str]) -> dict[str, dict]:
             - time_range: [t_start, t_end] as float Unix timestamps
             - row_counts: dict mapping topic name to number of rows
     """
-    sessions: dict[str, dict[str, pd.DataFrame]] = {}
+    # Accumulate metadata one file at a time so we never hold more than a single
+    # DataFrame in memory - important for large sessions (many/large topics).
+    acc: dict[str, dict] = {}
 
     for fp in file_paths:
         path = Path(fp)
@@ -323,30 +325,32 @@ def get_schema(file_paths: list[str]) -> dict[str, dict]:
             print(f"Warning: skipping '{path.name}' - no timestamp column found.")
             continue
         if topic != _STAT_TOPIC:
-            df = df.drop(columns=[c for c in COORD_COLS if c in df.columns], errors="ignore")        
-        sessions.setdefault(session_id, {})[topic] = df
+            df = df.drop(columns=[c for c in COORD_COLS if c in df.columns], errors="ignore")
 
-    result = {}
-    for session_id, topics in sessions.items():
-        all_cols = []
-        t_min, t_max = float("inf"), float("-inf")
-        row_counts = {}
+        cols = [c for c in df.columns if c != "stamp_seconds"]
+        s = acc.setdefault(session_id, {
+            "topics": set(),
+            "columns": [],
+            "columns_by_topic": {},
+            "row_counts": {},
+            "t_min": float("inf"),
+            "t_max": float("-inf"),
+        })
+        s["topics"].add(topic)
+        s["columns"].extend(cols)
+        s["columns_by_topic"][topic] = cols
+        s["row_counts"][topic] = len(df)
+        s["t_min"] = min(s["t_min"], float(df["stamp_seconds"].min()))
+        s["t_max"] = max(s["t_max"], float(df["stamp_seconds"].max()))
+        # df is dropped on the next iteration - only metadata is retained
 
-        for topic, df in topics.items():
-            all_cols.extend([c for c in df.columns if c != "stamp_seconds"])
-            t_min = min(t_min, df["stamp_seconds"].min())
-            t_max = max(t_max, df["stamp_seconds"].max())
-            row_counts[topic] = len(df)
-
-        result[session_id] = {
-            "topics": sorted(topics.keys()),
-            "columns": all_cols,
-            "columns_by_topic": {
-                topic: [c for c in df.columns if c != "stamp_seconds"]
-                for topic, df in topics.items()
-            },
-            "time_range": [t_min, t_max],
-            "row_counts": row_counts,
+    return {
+        session_id: {
+            "topics": sorted(s["topics"]),
+            "columns": s["columns"],
+            "columns_by_topic": s["columns_by_topic"],
+            "time_range": [s["t_min"], s["t_max"]],
+            "row_counts": s["row_counts"],
         }
-
-    return result
+        for session_id, s in acc.items()
+    }

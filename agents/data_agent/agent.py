@@ -20,7 +20,7 @@ from agents.qa_agent.agent import describe_uploaded_files, get_topic_file
 
 root_agent = Agent(
     name="data_agent",
-    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.0-flash-lite-001"),
+    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.5-flash"),
     description=(
         "Understands uploaded race telemetry CSV files exported from ROS2 rosbag2. "
         "Identifies sessions, topics, and columns, and explains what each represents "

@@ -231,7 +231,7 @@ def plot_gg_diagram(
 
 root_agent = Agent(
     name="plot_agent",
-    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.0-flash-lite-001"),
+    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.5-flash"),
     description=(
         "Generates Plotly visualisations for any race telemetry plot request. "
         "Handles time series, track maps, GG diagrams, lap comparisons, "

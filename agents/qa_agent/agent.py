@@ -806,7 +806,7 @@ def plot_gg_diagram(
 
 root_agent = Agent(
     name="qa_agent",
-    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.0-flash-lite-001"),
+    model=os.getenv("VERTEX_AI_MODEL", "gemini-2.5-flash"),
     generate_content_config={"temperature": 0},
     description=(
         "Answers any natural language question about race telemetry data. "
